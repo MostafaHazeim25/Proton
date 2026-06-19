@@ -1,0 +1,188 @@
+/* ============================================================
+   Proton — Notes knowledge system
+   Tree sidebar · block editor · slash menu · mind-map. Uses the
+   same dark theme tokens as the rest of the app.
+   ============================================================ */
+
+.notes-shell{ display:flex; gap:0; height:calc(100vh - 122px); min-height:420px;
+  border:1px solid var(--line); border-radius:16px; overflow:hidden; background:var(--panel); }
+
+/* ---------- left tree ---------- */
+.nt-tree{ width:288px; min-width:288px; border-right:1px solid var(--line);
+  display:flex; flex-direction:column; background:rgba(0,0,0,.12); }
+.nt-tree-head{ padding:14px 14px 10px; display:flex; align-items:center; gap:8px; }
+.nt-tree-head .t{ font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14.5px; flex:1; }
+.nt-tree-scroll{ flex:1; overflow:auto; padding:4px 8px 14px; }
+.nt-row{ display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:8px;
+  cursor:pointer; font-size:13.5px; color:var(--text); user-select:none; }
+.nt-row:hover{ background:rgba(255,255,255,.05); }
+.nt-row .nt-caret{ width:14px; height:14px; flex:none; color:var(--faint); transition:transform .15s; }
+.nt-row.open > .nt-caret{ transform:rotate(90deg); }
+.nt-row .nt-caret svg{ width:14px; height:14px; }
+.nt-row .nt-ico{ width:16px; height:16px; flex:none; color:var(--muted); display:grid; place-items:center; }
+.nt-row .nt-ico svg{ width:15px; height:15px; }
+.nt-row .nt-label{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nt-row .nt-dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+.nt-children{ margin-left:14px; border-left:1px solid var(--line); padding-left:4px; }
+.nt-note-row{ padding-left:8px; }
+.nt-note-row.active{ background:rgba(45,212,191,.14); color:#fff; }
+.nt-note-row.active .nt-ico{ color:var(--teal); }
+.nt-add{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--faint);
+  padding:4px 8px; border-radius:8px; cursor:pointer; }
+.nt-add:hover{ color:var(--teal); background:rgba(45,212,191,.08); }
+.nt-add svg{ width:13px; height:13px; }
+.nt-empty-tree{ padding:24px 16px; color:var(--faint); font-size:13px; text-align:center; }
+
+/* ---------- main area ---------- */
+.nt-main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+.nt-bar{ display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
+.nt-loc{ font-size:12.5px; color:var(--muted); display:flex; align-items:center; gap:6px; min-width:0; }
+.nt-loc .np-dot{ width:9px; height:9px; border-radius:50%; flex:none; }
+.nt-loc b{ color:var(--text); font-weight:600; }
+.nt-loc .sep{ color:var(--faint); }
+.nt-spacer{ flex:1; }
+.nt-mode{ display:flex; background:rgba(0,0,0,.2); border:1px solid var(--line); border-radius:9px; padding:2px; }
+.nt-mode button{ border:0; background:transparent; color:var(--muted); font-size:12.5px; padding:5px 11px; border-radius:7px; cursor:pointer; display:flex; align-items:center; gap:5px; }
+.nt-mode button.on{ background:var(--amber); color:#1a1206; font-weight:600; }
+.nt-mode button svg{ width:14px; height:14px; }
+
+.nt-doc{ flex:1; overflow:auto; }
+.nt-doc-inner{ max-width:760px; margin:0 auto; padding:30px 40px 120px; }
+
+.nt-title-in{ width:100%; border:0; background:transparent; color:var(--text);
+  font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:30px; outline:none; margin-bottom:4px; }
+.nt-title-in::placeholder{ color:var(--faint); }
+.nt-saved{ font-size:11.5px; color:var(--faint); margin-bottom:14px; display:flex; align-items:center; gap:6px; }
+.nt-saved.saving{ color:var(--teal); }
+
+/* ---------- toolbar ---------- */
+.nt-toolbar{ position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:3px; padding:8px 10px;
+  background:rgba(16,31,53,.92); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+.nt-tb{ border:0; background:transparent; color:var(--muted); width:30px; height:30px; border-radius:7px;
+  cursor:pointer; display:grid; place-items:center; font-size:13px; }
+.nt-tb:hover{ background:rgba(255,255,255,.07); color:var(--text); }
+.nt-tb.active{ color:var(--amber); }
+.nt-tb svg{ width:16px; height:16px; }
+.nt-tb b,.nt-tb i,.nt-tb u{ font-style:normal; }
+.nt-tb-sep{ width:1px; background:var(--line); margin:4px 3px; }
+
+/* ---------- editor content ---------- */
+.nt-editor{ outline:none; color:var(--text); font-size:15.5px; line-height:1.7; min-height:300px; }
+.nt-editor:empty:before{ content:attr(data-placeholder); color:var(--faint); }
+.nt-editor h1{ font-family:'Space Grotesk',sans-serif; font-size:26px; font-weight:700; margin:18px 0 8px; }
+.nt-editor h2{ font-family:'Space Grotesk',sans-serif; font-size:21px; font-weight:600; margin:16px 0 6px; }
+.nt-editor h3{ font-size:17.5px; font-weight:600; margin:14px 0 6px; }
+.nt-editor p{ margin:7px 0; }
+.nt-editor ul,.nt-editor ol{ margin:7px 0; padding-left:24px; }
+.nt-editor li{ margin:3px 0; }
+.nt-editor a{ color:var(--teal); text-decoration:underline; cursor:pointer; }
+.nt-editor blockquote{ border-left:3px solid var(--amber); margin:10px 0; padding:4px 14px; color:var(--muted); font-style:italic; }
+.nt-editor pre.code{ background:#0b1626; border:1px solid var(--line); border-radius:10px; padding:14px 16px;
+  font-family:'JetBrains Mono',monospace; font-size:13.5px; overflow:auto; margin:10px 0; color:#cfe; white-space:pre-wrap; }
+.nt-editor .callout{ display:flex; gap:10px; background:rgba(243,172,64,.10); border:1px solid rgba(243,172,64,.30);
+  border-radius:10px; padding:12px 14px; margin:10px 0; }
+.nt-editor .callout .cl-emoji{ font-size:18px; flex:none; user-select:none; }
+.nt-editor table{ border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; }
+.nt-editor th,.nt-editor td{ border:1px solid var(--line); padding:8px 10px; text-align:left; }
+.nt-editor th{ background:rgba(255,255,255,.04); font-weight:600; }
+.nt-editor .cl-item{ display:flex; align-items:flex-start; gap:9px; margin:4px 0; }
+.nt-editor .cl-box{ width:18px; height:18px; border:2px solid var(--muted); border-radius:5px; flex:none;
+  margin-top:3px; cursor:pointer; display:grid; place-items:center; }
+.nt-editor .cl-box svg{ width:12px; height:12px; color:#1a1206; opacity:0; }
+.nt-editor .cl-item[data-checked="true"] .cl-box{ background:var(--teal); border-color:var(--teal); }
+.nt-editor .cl-item[data-checked="true"] .cl-box svg{ opacity:1; }
+.nt-editor .cl-item[data-checked="true"] .cl-text{ text-decoration:line-through; color:var(--faint); }
+.nt-editor .cl-text{ flex:1; outline:none; }
+.nt-editor .note-link{ background:rgba(45,212,191,.12); padding:1px 6px; border-radius:5px; text-decoration:none; }
+.nt-editor .note-link:before{ content:"↗ "; opacity:.7; }
+.nt-editor .img-wrap{ position:relative; display:inline-block; margin:10px 0; max-width:100%; }
+.nt-editor .img-wrap img{ display:block; max-width:100%; border-radius:10px; border:1px solid var(--line); }
+.nt-editor .img-wrap .img-handle{ position:absolute; right:-5px; bottom:-5px; width:16px; height:16px;
+  background:var(--teal); border:2px solid var(--panel); border-radius:50%; cursor:nwse-resize; opacity:0; transition:.15s; }
+.nt-editor .img-wrap:hover .img-handle{ opacity:1; }
+
+/* attachments strip */
+.nt-attach{ margin-top:18px; display:flex; flex-wrap:wrap; gap:8px; }
+.nt-chip{ display:flex; align-items:center; gap:8px; background:rgba(255,255,255,.05); border:1px solid var(--line);
+  border-radius:9px; padding:7px 11px; font-size:13px; cursor:pointer; }
+.nt-chip:hover{ border-color:var(--teal); }
+.nt-chip svg{ width:15px; height:15px; color:var(--teal); }
+.nt-chip .x{ color:var(--faint); margin-left:2px; }
+.nt-chip .x:hover{ color:var(--red); }
+
+/* ---------- slash menu ---------- */
+.nt-slash{ position:absolute; z-index:60; background:var(--panel); border:1px solid var(--line);
+  border-radius:11px; box-shadow:0 16px 40px rgba(0,0,0,.5); width:248px; padding:6px; max-height:300px; overflow:auto; }
+.nt-slash-item{ display:flex; align-items:center; gap:10px; padding:8px 9px; border-radius:8px; cursor:pointer; font-size:13.5px; }
+.nt-slash-item.sel,.nt-slash-item:hover{ background:rgba(45,212,191,.14); }
+.nt-slash-item .si-ico{ width:30px; height:30px; border-radius:7px; background:rgba(255,255,255,.05);
+  display:grid; place-items:center; flex:none; color:var(--muted); }
+.nt-slash-item .si-ico svg{ width:16px; height:16px; }
+.nt-slash-item .si-sub{ font-size:11.5px; color:var(--faint); }
+
+/* note picker (internal link) */
+.nt-picker{ max-height:260px; overflow:auto; }
+.nt-pick-item{ padding:9px 11px; border-radius:8px; cursor:pointer; font-size:13.5px; }
+.nt-pick-item:hover{ background:rgba(45,212,191,.12); }
+.nt-pick-item .sub{ font-size:11.5px; color:var(--faint); }
+
+/* empty editor state */
+.nt-blank{ flex:1; display:grid; place-items:center; }
+.nt-blank .inner{ text-align:center; color:var(--faint); }
+.nt-blank svg{ width:46px; height:46px; opacity:.4; margin-bottom:12px; }
+.nt-blank .btn{ margin-top:14px; }
+
+/* ---------- mind map ---------- */
+.nt-map{ flex:1; position:relative; overflow:hidden; background:
+  radial-gradient(circle at 50% 40%, rgba(45,212,191,.05), transparent 60%); cursor:grab; }
+.nt-map.dragging{ cursor:grabbing; }
+.nt-map svg{ width:100%; height:100%; display:block; }
+.nt-map .mm-link{ fill:none; stroke:var(--line); stroke-width:1.6; }
+.nt-map .mm-node{ cursor:pointer; }
+.nt-map .mm-rect{ rx:9; ry:9; }
+.nt-map .mm-course .mm-rect{ fill:var(--amber); }
+.nt-map .mm-course .mm-text{ fill:#1a1206; font-weight:700; }
+.nt-map .mm-section .mm-rect{ fill:#16345a; stroke:var(--teal); stroke-width:1.4; }
+.nt-map .mm-section .mm-text{ fill:#cfeee9; font-weight:600; }
+.nt-map .mm-note .mm-rect{ fill:rgba(255,255,255,.06); stroke:var(--line); stroke-width:1.2; }
+.nt-map .mm-note.active .mm-rect{ stroke:var(--teal); stroke-width:2; }
+.nt-map .mm-note .mm-text{ fill:var(--text); }
+.nt-map .mm-badge{ fill:var(--faint); font-size:11px; }
+.nt-map .mm-plus{ cursor:pointer; }
+.nt-map .mm-plus circle{ fill:rgba(45,212,191,.15); stroke:var(--teal); }
+.nt-map .mm-plus path{ stroke:var(--teal); stroke-width:2; }
+.nt-map .mm-toggle{ cursor:pointer; }
+.nt-map .mm-toggle circle{ fill:var(--panel); stroke:var(--teal); }
+.nt-map .mm-toggle path{ stroke:var(--teal); stroke-width:2; }
+.nt-map-hint{ position:absolute; left:14px; bottom:12px; font-size:11.5px; color:var(--faint);
+  background:rgba(0,0,0,.3); padding:5px 10px; border-radius:8px; pointer-events:none; }
+.nt-map-zoom{ position:absolute; right:14px; bottom:12px; display:flex; flex-direction:column; gap:6px; }
+.nt-map-zoom button{ width:30px; height:30px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel); color:var(--text); cursor:pointer; font-size:16px; }
+.nt-map-zoom button:hover{ border-color:var(--teal); color:var(--teal); }
+
+/* section-notes link inside the goal detail view (replaces old textarea) */
+.section-notes-link{ display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted);
+  background:rgba(45,212,191,.07); border:1px solid var(--line); border-radius:8px; padding:6px 11px;
+  cursor:pointer; margin:2px 0 8px; }
+.section-notes-link:hover{ color:var(--teal); border-color:var(--teal); }
+.section-notes-link svg{ width:14px; height:14px; }
+
+/* toast undo button + error */
+.toast-undo{ background:transparent; border:1px solid var(--line); color:var(--teal); font-size:12px;
+  padding:3px 10px; border-radius:7px; cursor:pointer; margin-left:6px; }
+.toast-undo:hover{ background:rgba(45,212,191,.12); }
+.toast.toast-error{ border-color:rgba(248,113,113,.5); }
+.toast.toast-error span{ color:#fca5a5; }
+
+/* boot loading overlay */
+#boot-loader{ position:fixed; inset:0; z-index:200; display:grid; place-items:center; background:var(--ink); }
+#boot-loader .bl-atom{ width:54px; height:54px; border-radius:50%; background:var(--amber);
+  box-shadow:0 0 26px 6px rgba(243,172,64,.4); animation:proton-pulse 1.4s ease-in-out infinite; }
+#boot-loader .bl-text{ position:absolute; bottom:40%; transform:translateY(60px); color:var(--faint); font-size:13px; }
+
+@media(max-width:860px){
+  .notes-shell{ height:auto; flex-direction:column; }
+  .nt-tree{ width:auto; min-width:0; max-height:240px; border-right:0; border-bottom:1px solid var(--line); }
+  .nt-doc-inner{ padding:22px 18px 80px; }
+}

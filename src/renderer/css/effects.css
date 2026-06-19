@@ -1,0 +1,59 @@
+/* ============================================================
+   Proton — atom & universe effects
+   Lightweight, GPU-friendly, layered BEHIND the existing UI so
+   the original layout/colours/UX are untouched. Honors
+   prefers-reduced-motion.
+   ============================================================ */
+
+/* ---------- universe background (subtle particle canvas) ---------- */
+#proton-cosmos{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  opacity:.55;
+}
+.app{ position:relative; z-index:1; }   /* keep UI above the canvas */
+
+/* ---------- electron orbits around the brand mark ---------- */
+.brand-mark{ position:relative; overflow:visible; }
+.brand-mark .atom-orbits{
+  position:absolute; inset:-9px; pointer-events:none; z-index:2;
+  color:var(--teal);
+}
+.brand-mark .atom-orbits svg{ width:100%; height:100%; overflow:visible; }
+.brand-mark .orbit-ring{
+  fill:none; stroke:currentColor; stroke-width:1.2; opacity:.42;
+  transform-box:fill-box; transform-origin:center;
+}
+.brand-mark .electron{ fill:var(--teal); }
+.brand-mark .orbit-grp{ transform-box:fill-box; transform-origin:center; }
+.brand-mark .o1{ animation:proton-spin 6s linear infinite; }
+.brand-mark .o2{ animation:proton-spin 9s linear infinite reverse; }
+.brand-mark .o3{ animation:proton-spin 7.5s linear infinite; }
+
+/* soft pulsing nucleus glow on the amber mark */
+.brand-mark::after{
+  content:""; position:absolute; inset:0; border-radius:9px; z-index:0;
+  box-shadow:0 0 0 0 rgba(243,172,64,.45);
+  animation:proton-pulse 3.2s ease-in-out infinite;
+}
+.brand-mark svg:not(.atom-svg){ position:relative; z-index:1; }
+
+@keyframes proton-spin{ to{ transform:rotate(360deg); } }
+@keyframes proton-pulse{
+  0%,100%{ box-shadow:0 0 10px 1px rgba(243,172,64,.30); }
+  50%    { box-shadow:0 0 18px 4px rgba(243,172,64,.12); }
+}
+
+/* a faint amber glow accent behind the active nav item (very subtle) */
+.nav-item.active{ position:relative; }
+
+/* respect users who prefer no motion: freeze everything */
+@media (prefers-reduced-motion: reduce){
+  .brand-mark .o1,.brand-mark .o2,.brand-mark .o3,.brand-mark::after{ animation:none; }
+  #proton-cosmos{ display:none; }
+}
+
+/* lets the user turn the cosmic background off from settings (body flag) */
+body.no-cosmos #proton-cosmos{ display:none; }
+body.no-cosmos .brand-mark .o1,
+body.no-cosmos .brand-mark .o2,
+body.no-cosmos .brand-mark .o3{ animation-play-state:paused; }
