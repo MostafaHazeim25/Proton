@@ -106,6 +106,8 @@ function createWindow() {
     title: 'Proton',
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0A1320', symbolColor: '#E6EDF5', height: 62 },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,

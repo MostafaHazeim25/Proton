@@ -87,7 +87,11 @@ input,textarea{font-family:inherit;color:inherit}
   height:62px;flex-shrink:0;border-bottom:1px solid var(--line);
   display:flex;align-items:center;gap:14px;padding:0 26px;
   background:rgba(10,19,32,.6);backdrop-filter:blur(8px);
+  -webkit-app-region:drag;            /* drag the window by the top bar */
+  padding-right:150px;                /* reserve room for the window buttons */
 }
+/* interactive items in the title-bar region must not be draggable */
+.topbar button,.topbar .search-trigger,.topbar .crumb-link,.topbar a{ -webkit-app-region:no-drag; }
 .hamburger{display:none;width:34px;height:34px;border-radius:8px;background:rgba(255,255,255,.05);place-items:center}
 .hamburger svg{width:18px;height:18px}
 .page-title{font-family:'Space Grotesk';font-size:21px;font-weight:600;letter-spacing:-.4px}
