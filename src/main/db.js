@@ -161,13 +161,8 @@ function open(dbPath) {
   db.exec(SCHEMA);
   runMigrations();
 
-  // 4) seed on first launch only
-  const count = db.prepare('SELECT COUNT(*) c FROM learning_paths').get().c;
-  const seeded = getMeta('seeded');
-  if (count === 0 && !seeded) {
-    seedInitial();
-    setMeta('seeded', '1');
-  }
+  // 4) first launch: start empty so each user builds their own universe
+  //    (the welcome screen in the UI guides them to create their first path)
   setMeta('schema_version', String(SCHEMA_VERSION));
   return db;
 }
@@ -439,6 +434,20 @@ function deleteSection(id) {
   db.prepare('SELECT id FROM notes WHERE section_id=?').all(id).forEach((r) => ftsDelete(r.id));
   db.prepare('DELETE FROM sections WHERE id=?').run(id);
 }
+function reorderCourses(pathId, orderedIds) {
+  const stmt = db.prepare('UPDATE courses SET position=@pos,updated_at=@t WHERE id=@id AND path_id=@pid');
+  const tx = db.transaction((ids) => {
+    ids.forEach((id, i) => stmt.run({ id, pid: pathId, pos: i, t: nowISO() }));
+  });
+  tx(orderedIds);
+}
+function reorderSections(courseId, orderedIds) {
+  const stmt = db.prepare('UPDATE sections SET position=@pos,updated_at=@t WHERE id=@id AND course_id=@cid');
+  const tx = db.transaction((ids) => {
+    ids.forEach((id, i) => stmt.run({ id, cid: courseId, pos: i, t: nowISO() }));
+  });
+  tx(orderedIds);
+}
 
 /* ============================================================
    TASKS
@@ -644,6 +653,56 @@ function exportAll() {
 
 /* Accepts either a Proton backup OR an old PathBoard web export
    ({goals:[...]} with section.notes strings). */
+/* ---- single-path export / import (share one path as a .json file) ---- */
+function exportPath(pathId) {
+  const p = db.prepare('SELECT * FROM learning_paths WHERE id=?').get(pathId);
+  if (!p) throw new Error('Path not found');
+  const courses = db.prepare('SELECT * FROM courses WHERE path_id=? ORDER BY position,created_at').all(pathId);
+  const cIds = courses.map((c) => c.id);
+  const ph = (arr) => arr.map(() => '?').join(',');
+  const sections = cIds.length ? db.prepare(`SELECT * FROM sections WHERE course_id IN (${ph(cIds)}) ORDER BY position,created_at`).all(...cIds) : [];
+  const sIds = sections.map((s) => s.id);
+  const tasks = sIds.length ? db.prepare(`SELECT * FROM tasks WHERE section_id IN (${ph(sIds)}) ORDER BY position,created_at`).all(...sIds) : [];
+  const notes = cIds.length ? db.prepare(`SELECT * FROM notes WHERE course_id IN (${ph(cIds)}) ORDER BY position,created_at`).all(...cIds) : [];
+  return {
+    protonPath: true, version: 1, exportedAt: nowISO(),
+    path: { title: p.title, description: p.description, color: p.color },
+    courses, sections, tasks, notes,   // note text travels; locally-stored images/attachments do not
+  };
+}
+
+function importPath(data) {
+  if (!data || typeof data !== 'object' || (!data.protonPath && !data.path)) {
+    throw new Error('This is not a Proton path file.');
+  }
+  const d = data;
+  let newPathId;
+  const tx = db.transaction(() => {
+    const idMap = new Map();
+    const mid = (old) => { if (!idMap.has(old)) idMap.set(old, uid()); return idMap.get(old); };
+    newPathId = uid();
+    const pos = nextPos('SELECT COALESCE(MAX(position),-1)+1 p FROM learning_paths');
+    const p = d.path || {};
+    insertPathRow({ id: newPathId, title: p.title || 'Imported path', description: p.description || '', color: p.color || '#F3AC40', position: pos });
+    (d.courses || []).forEach((c, i) => {
+      insertCourseRow({ id: mid(c.id), path_id: newPathId, title: c.title || 'Course', description: c.description || '', status: c.status || 'todo', position: c.position != null ? c.position : i });
+    });
+    (d.sections || []).forEach((s, i) => {
+      insertSectionRow({ id: mid(s.id), course_id: mid(s.course_id), title: s.title || 'Section', legacy_notes: '', collapsed: s.collapsed ? 1 : 0, position: s.position != null ? s.position : i });
+    });
+    (d.tasks || []).forEach((t, i) => {
+      insertTaskRow({ id: uid(), section_id: mid(t.section_id), text: t.text || '', done: t.done ? 1 : 0, today: t.today ? 1 : 0, done_at: t.done_at || null, position: t.position != null ? t.position : i });
+    });
+    (d.notes || []).forEach((n, i) => {
+      const nid = uid();
+      insertNoteRow({ id: nid, title: n.title || 'Untitled', content: n.content || '', course_id: mid(n.course_id), section_id: n.section_id != null ? mid(n.section_id) : null, position: n.position != null ? n.position : i });
+      ftsUpsert(nid, n.title || 'Untitled', n.content || '');
+    });
+  });
+  tx();
+  return newPathId;
+}
+
 function importAll(data) {
   if (!data || typeof data !== 'object') throw new Error('Invalid backup');
   const tx = db.transaction(() => {
@@ -748,11 +807,11 @@ module.exports = {
   open, close, getState, getStats, integrityCheck, checkpoint, getPath, uid,
   createPath, updatePath, deletePath,
   createCourse, updateCourse, deleteCourse, setCourseStatus,
-  createSection, updateSection, deleteSection,
+  createSection, updateSection, deleteSection, reorderCourses, reorderSections,
   createTask, updateTask, deleteTask,
   listNotes, getNote, createNote, updateNote, deleteNote, moveNote,
   addNoteImage, addNoteAttachment,
   search, logActivity,
   getSetting, setSetting,
-  exportAll, importAll,
+  exportAll, importAll, exportPath, importPath,
 };

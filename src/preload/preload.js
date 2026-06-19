@@ -32,11 +32,13 @@ const api = {
   updateCourse: (id, data) => call('course:update', id, data),
   deleteCourse: (id) => call('course:delete', id),
   setCourseStatus: (id, status) => call('course:setStatus', id, status),
+  reorderCourses: (pathId, ids) => call('course:reorder', pathId, ids),
 
   // sections
   createSection: (courseId, data) => call('section:create', courseId, data),
   updateSection: (id, data) => call('section:update', id, data),
   deleteSection: (id) => call('section:delete', id),
+  reorderSections: (courseId, ids) => call('section:reorder', courseId, ids),
 
   // tasks
   createTask: (sectionId, data) => call('task:create', sectionId, data),
@@ -68,6 +70,10 @@ const api = {
   listBackups: () => call('backup:list'),
   openBackupsFolder: () => call('backup:openFolder'),
   openDataFolder: () => call('app:openDataFolder'),
+  openExternal: (url) => call('app:openExternal', url),
+  checkForUpdates: () => call('updates:check'),
+  exportPath: (pathId) => call('path:export', pathId),
+  importPath: () => call('path:import'),
 };
 
 contextBridge.exposeInMainWorld('proton', api);

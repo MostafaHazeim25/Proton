@@ -22,6 +22,9 @@ const ICON = {
   trending:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg>',
   layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5z"/><path d="m3 12 9 5 9-5M3 17l9 5 9-5"/></svg>',
   note:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>',
+  grip:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 15V4"/></svg>',
+  download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
 };
 
 /* ============== Constants ============== */
@@ -219,7 +222,8 @@ function renderPaths(){
       <div class="gc-prog-row"><div class="gc-bar"><i style="width:${p}%"></i></div><div class="gc-pct">${p}%</div></div>
     </div>`;
   });
-  html+=`<button class="add-goal-card" data-action="new-goal">${ICON.plus}<span>New learning path</span></button></div>`;
+  html+=`<button class="add-goal-card" data-action="new-goal">${ICON.plus}<span>New learning path</span></button>
+  <button class="add-goal-card import-path-card" data-action="import-path">${ICON.download}<span>Import a path file</span></button></div>`;
   content.innerHTML=html;
 }
 
@@ -236,6 +240,7 @@ function renderGoal(){
       <div class="gd-title">${esc(g.title)}</div>
       <div class="gd-desc">${esc(g.description||'')}</div>
     </div>
+    <button class="icon-btn" data-action="export-path" data-id="${g.id}" title="Export / share this path">${ICON.share}</button>
     <button class="icon-btn" data-action="edit-goal" data-id="${g.id}" title="Edit path">${ICON.edit}</button>
     <button class="icon-btn danger" data-action="del-goal" data-id="${g.id}" title="Delete path">${ICON.trash}</button>
   </div>
@@ -250,6 +255,7 @@ function renderGoal(){
     const cp=courseProgress(c), open=!!state.ui.openCourses[c.id];
     html+=`<div class="course ${open?'open':''}" data-course="${c.id}">
       <div class="course-head" data-toggle-course="${c.id}">
+        <span class="drag-grip course-grip" title="Drag to reorder">${ICON.grip}</span>
         <span class="course-caret">${ICON.caret}</span>
         <div class="course-info">
           <div class="course-name">${esc(c.title)} ${statusTag(c.status)}</div>
@@ -268,9 +274,11 @@ function renderGoal(){
       const ncount=s.notes.length;
       html+=`<div class="section" data-section="${s.id}">
         <div class="section-head">
+          <span class="drag-grip sec-grip" title="Drag to reorder">${ICON.grip}</span>
           <span class="section-name" contenteditable="true" data-edit-section="${s.id}">${esc(s.title)}</span>
           <span class="section-count">${sd}/${s.tasks.length}</span>
           <div style="flex:1"></div>
+          <button class="icon-btn" data-action="rename-section" data-id="${s.id}" title="Rename section">${ICON.edit}</button>
           <button class="icon-btn danger" data-action="del-section" data-id="${s.id}" title="Delete section">${ICON.trash}</button>
         </div>
         <button class="section-notes-link" data-action="open-notes" data-c="${c.id}" data-s="${s.id}">${ICON.note}${ncount? ncount+' note'+(ncount!==1?'s':'')+' · open' : 'Open notes'}</button>`;
@@ -289,6 +297,71 @@ function renderGoal(){
   });
   html+=`<button class="btn add-course-btn" data-action="new-course" data-id="${g.id}">${ICON.plus}Add course / sub-goal</button>`;
   content.innerHTML=html;
+  bindGoalDnD(g);
+}
+
+/* ====== Drag-to-reorder (courses within a path, sections within a course) ====== */
+let dndEl=null, dndType=null, dndParent=null;
+function dragAfter(container, y, selector){
+  const els=[...container.querySelectorAll(':scope > '+selector+':not(.dragging)')];
+  let best={offset:-Infinity, el:null};
+  for(const child of els){
+    const box=child.getBoundingClientRect();
+    const offset=y - box.top - box.height/2;
+    if(offset<0 && offset>best.offset) best={offset, el:child};
+  }
+  return best.el;
+}
+function bindGoalDnD(g){
+  // ---- courses ----
+  content.querySelectorAll(':scope > .course').forEach(el=>{
+    const grip=el.querySelector('.course-grip');
+    if(grip){
+      grip.addEventListener('mousedown',e=>{ e.stopPropagation(); el.draggable=true; });
+      grip.addEventListener('click',e=>e.stopPropagation());
+    }
+    el.addEventListener('dragstart',e=>{ dndEl=el; dndType='course'; el.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    el.addEventListener('mouseup',()=>{ if(!el.classList.contains('dragging')) el.draggable=false; });
+    el.addEventListener('dragend',()=>{
+      el.draggable=false; el.classList.remove('dragging');
+      if(dndType==='course'){ const ids=[...content.querySelectorAll(':scope > .course')].map(x=>x.dataset.course); Store.reorderCourses(g.id, ids); }
+      dndEl=null; dndType=null;
+    });
+  });
+  content.addEventListener('dragover', onContentDragOver);
+
+  // ---- sections (within their own course-body) ----
+  content.querySelectorAll('.section').forEach(el=>{
+    const grip=el.querySelector('.sec-grip');
+    if(grip){ grip.addEventListener('mousedown',e=>{ e.stopPropagation(); el.draggable=true; }); grip.addEventListener('click',e=>e.stopPropagation()); }
+    el.addEventListener('dragstart',e=>{ e.stopPropagation(); dndEl=el; dndType='section'; dndParent=el.parentElement; el.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    el.addEventListener('mouseup',()=>{ if(!el.classList.contains('dragging')) el.draggable=false; });
+    el.addEventListener('dragend',()=>{
+      el.draggable=false; el.classList.remove('dragging');
+      if(dndType==='section' && dndParent){
+        const courseEl=dndParent.closest('.course'); const cid=courseEl&&courseEl.dataset.course;
+        const ids=[...dndParent.querySelectorAll(':scope > .section')].map(x=>x.dataset.section);
+        if(cid) Store.reorderSections(cid, ids);
+      }
+      dndEl=null; dndType=null; dndParent=null;
+    });
+  });
+  content.querySelectorAll('.course-body').forEach(body=>{
+    body.addEventListener('dragover',e=>{
+      if(dndType!=='section'||!dndEl||dndEl.parentElement!==body) return;
+      e.preventDefault(); e.stopPropagation();
+      const after=dragAfter(body, e.clientY, '.section');
+      const anchor=body.querySelector('.add-section-btn');
+      if(after==null) body.insertBefore(dndEl, anchor); else body.insertBefore(dndEl, after);
+    });
+  });
+}
+function onContentDragOver(e){
+  if(dndType!=='course'||!dndEl) return;
+  e.preventDefault();
+  const after=dragAfter(content, e.clientY, '.course');
+  const anchor=content.querySelector('.add-course-btn');
+  if(after==null) content.insertBefore(dndEl, anchor); else content.insertBefore(dndEl, after);
 }
 
 /* ============== Board ============== */
@@ -531,6 +604,22 @@ function courseModal(goalId, existing){
     </div>`);
   setTimeout(()=>$('#m-title')?.focus(),50);
 }
+function renameSectionModal(id){
+  const f=Store.findSection(id); if(!f) return;
+  openModal(`
+    <div class="modal-head"><div class="modal-title">Rename section</div></div>
+    <div class="modal-body">
+      <div class="field"><label>Section name</label><input id="m-title" value="${esc(f.s.title)}" placeholder="e.g. Secure Network Access (VPN)"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+      <button class="btn btn-primary" id="rename-sec-save">Save</button>
+    </div>`);
+  setTimeout(()=>{ const i=$('#m-title'); if(i){ i.focus(); i.select(); } },50);
+  const save=()=>{ const t=$('#m-title').value.trim(); if(!t){ $('#m-title').focus(); return; } Store.updateSection(id,{title:t}); closeModal(); render(); toast('Section renamed'); };
+  $('#rename-sec-save').onclick=save;
+  $('#m-title').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); save(); } });
+}
 function confirmDel(msg,onYes){
   openModal(`
     <div class="modal-head"><div class="modal-title">Are you sure?</div></div>
@@ -578,7 +667,7 @@ function wireSearch(){
 function wireClicks(){
   content.addEventListener('click',e=>{
     const toggle=e.target.closest('[data-toggle]'); if(toggle){ toggleTask(toggle.dataset.toggle); return; }
-    const tc=e.target.closest('[data-toggle-course]'); if(tc){ const id=tc.dataset.toggleCourse; state.ui.openCourses[id]=!state.ui.openCourses[id]; save(); render(); return; }
+    const tc=e.target.closest('[data-toggle-course]'); if(tc && !e.target.closest('[data-action]') && !e.target.closest('.drag-grip')){ const id=tc.dataset.toggleCourse; state.ui.openCourses[id]=!state.ui.openCourses[id]; save(); render(); return; }
     const og=e.target.closest('[data-open-goal]'); if(og && !e.target.closest('[data-action]')){ go('goal', og.dataset.openGoal); return; }
     const nav=e.target.closest('[data-nav]'); if(nav){ go(nav.dataset.nav, nav.dataset.goal); return; }
 
@@ -587,10 +676,13 @@ function wireClicks(){
     if(a==='new-goal') goalModal(null);
     else if(a==='edit-goal'){ e.stopPropagation(); goalModal(state.goals.find(g=>g.id===id)); }
     else if(a==='del-goal'){ confirmDel('Delete this entire path and all its courses?',async ()=>{ await Store.delPath(id); go('paths'); }); }
+    else if(a==='export-path'){ e.stopPropagation(); exportPathFlow(id); }
+    else if(a==='import-path'){ importPathFlow(); }
     else if(a==='new-course') courseModal(id,null);
     else if(a==='edit-course'){ e.stopPropagation(); const f=findCourse(id); if(f) courseModal(f.g.id,f.c); }
     else if(a==='del-course'){ e.stopPropagation(); confirmDel('Delete this course and everything in it?',async ()=>{ await Store.delCourse(id); render(); }); }
     else if(a==='add-section') addSection(id);
+    else if(a==='rename-section'){ e.stopPropagation(); renameSectionModal(id); }
     else if(a==='del-section') delSection(id);
     else if(a==='add-task') addTask(id);
     else if(a==='del-task') delTask(id);
@@ -662,6 +754,7 @@ function wireChrome(){
       }catch(err){ notifyError('Import failed: '+err.message); }
     });
   };
+  const ub=$('#updates-btn'); if(ub) ub.onclick=()=>{ toast('Checking for updates…'); checkUpdates(true); };
 }
 
 /* ============== Boot ============== */
@@ -680,6 +773,66 @@ async function boot(){
   window.App = { render, go, toast, toastUndo, notifyError, confirmDel, openModal, closeModal, esc, ICON, COLORS, state:()=>state };
   render();
   const bl=$('#boot-loader'); if(bl){ bl.style.opacity='0'; bl.style.transition='.35s'; setTimeout(()=>bl.remove(),360); }
+  if(!state.goals.length) setTimeout(welcomeModal, 400);   // first-run welcome
+  setTimeout(()=>checkUpdates(false), 2500);   // silent check shortly after launch
+}
+
+/* ====== First-run welcome ====== */
+function welcomeModal(){
+  if($('#modal-overlay').classList.contains('show')) return;
+  openModal(`
+    <div class="welcome">
+      <div class="welcome-atom">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <g fill="none" stroke="var(--teal)" stroke-width="2.4" opacity="0.9">
+            <ellipse cx="50" cy="50" rx="44" ry="17"/>
+            <ellipse cx="50" cy="50" rx="44" ry="17" transform="rotate(60 50 50)"/>
+            <ellipse cx="50" cy="50" rx="44" ry="17" transform="rotate(120 50 50)"/>
+          </g>
+          <circle cx="50" cy="50" r="13" fill="var(--amber)"/>
+        </svg>
+      </div>
+      <div class="welcome-title">Welcome to Proton</div>
+      <div class="welcome-sub">Make your own universe. Start by creating your first learning path — a goal you want to reach. You can add courses, tasks, and notes inside it.</div>
+      <div class="welcome-actions">
+        <button class="btn btn-primary" id="welcome-start">${ICON.plus}Create your first path</button>
+        <button class="btn btn-ghost" id="welcome-import">${ICON.layers}Import a path file</button>
+      </div>
+    </div>`);
+  $('#welcome-start').onclick=()=>{ closeModal(); goalModal(null); };
+  $('#welcome-import').onclick=()=>{ closeModal(); importPathFlow(); };
+}
+
+/* ====== Share a path (export / import a single path as .json) ====== */
+async function exportPathFlow(id){
+  try{ const p=await window.proton.exportPath(id); if(p) toast('Path exported'); }
+  catch(err){ notifyError('Export failed: '+(err.message||err)); }
+}
+async function importPathFlow(){
+  try{
+    const r=await window.proton.importPath();
+    if(r && r.state){ await Store.boot(); state=Store.state; go('goal', r.pathId); toast('Path imported'); }
+  }catch(err){ notifyError('Import failed: '+(err.message||err)); }
+}
+
+/* ====== Update check ====== */
+async function checkUpdates(manual){
+  let r=null;
+  try{ r=await window.proton.checkForUpdates(); }catch(_){ r=null; }
+  if(!r || !r.ok){ if(manual) toast('Could not check (no internet?)'); return; }
+  if(r.updateAvailable){ showUpdateBanner(r.latestVersion, r.url); }
+  else if(manual){ toast('You’re on the latest version ('+r.current+')'); }
+}
+function showUpdateBanner(version, url){
+  if($('#update-banner')) return;
+  const b=document.createElement('div');
+  b.id='update-banner';
+  b.innerHTML=`<span class="ub-dot"></span><div class="ub-text"><b>Update available — v${esc(version)}</b><span>A newer version of Proton is ready to download.</span></div>
+    <button class="btn btn-primary btn-sm" id="ub-get">Download</button>
+    <button class="icon-btn" id="ub-x" title="Dismiss">${ICON.plus}</button>`;
+  document.body.appendChild(b);
+  $('#ub-get').onclick=()=>{ window.proton.openExternal(url); };
+  $('#ub-x').onclick=()=>b.remove();
 }
 
 document.addEventListener('DOMContentLoaded', boot);

@@ -10,7 +10,7 @@ A professional, <b>fully offline</b> Windows learning tracker — paths, courses
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0A1320?style=for-the-badge&logo=windows&logoColor=2DD4BF">
   <img src="https://img.shields.io/badge/100%25-offline-2DD4BF?style=for-the-badge">
   <img src="https://img.shields.io/badge/built%20with-Electron%20%2B%20SQLite-F3AC40?style=for-the-badge">
-  <img src="https://img.shields.io/badge/version-1.0.0-8CA0B8?style=for-the-badge">
+  <img src="https://img.shields.io/badge/version-1.1.0-8CA0B8?style=for-the-badge">
 </p>
 
 <p align="center">

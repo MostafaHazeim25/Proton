@@ -130,6 +130,20 @@ const Store = {
     if (f) f.c.sections = f.c.sections.filter((s) => s.id !== id);
     await P.deleteSection(id);
   },
+  reorderCourses(pathId, orderedIds) {
+    const g = this.state.goals.find((x) => x.id === pathId);
+    if (!g) return;
+    const map = new Map(g.courses.map((c) => [c.id, c]));
+    g.courses = orderedIds.map((id) => map.get(id)).filter(Boolean);
+    P.reorderCourses(pathId, orderedIds).catch(() => {});
+  },
+  reorderSections(courseId, orderedIds) {
+    const f = this.findCourse(courseId);
+    if (!f) return;
+    const map = new Map(f.c.sections.map((s) => [s.id, s]));
+    f.c.sections = orderedIds.map((id) => map.get(id)).filter(Boolean);
+    P.reorderSections(courseId, orderedIds).catch(() => {});
+  },
 
   /* ---------- TASKS ---------- */
   async addTask(sectionId) {

@@ -17,8 +17,8 @@ function register(getWindow) {
   const ok = (data) => ({ ok: true, data });
   const fail = (e) => ({ ok: false, error: String(e && e.message ? e.message : e) });
   const h = (channel, fn) =>
-    ipcMain.handle(channel, (_evt, ...args) => {
-      try { return ok(fn(...args)); }
+    ipcMain.handle(channel, async (_evt, ...args) => {
+      try { return ok(await fn(...args)); }
       catch (e) { console.error('[ipc] ' + channel, e); return fail(e); }
     });
 
@@ -37,11 +37,13 @@ function register(getWindow) {
   h('course:update', (id, data) => db.updateCourse(id, data));
   h('course:delete', (id) => db.deleteCourse(id));
   h('course:setStatus', (id, status) => db.setCourseStatus(id, status));
+  h('course:reorder', (pathId, ids) => db.reorderCourses(pathId, ids));
 
   /* ---------- sections ---------- */
   h('section:create', (courseId, data) => db.createSection(courseId, data));
   h('section:update', (id, data) => db.updateSection(id, data));
   h('section:delete', (id) => db.deleteSection(id));
+  h('section:reorder', (courseId, ids) => db.reorderSections(courseId, ids));
 
   /* ---------- tasks ---------- */
   h('task:create', (sectionId, data) => db.createTask(sectionId, data));
@@ -118,9 +120,89 @@ function register(getWindow) {
     } catch (e) { return fail(e); }
   });
 
+  ipcMain.handle('path:export', async (_evt, pathId) => {
+    try {
+      const win = getWindow();
+      const data = db.exportPath(pathId);
+      const safe = (data.path.title || 'path').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'path';
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Export Path', defaultPath: 'proton-path-' + safe + '.json',
+        filters: [{ name: 'Proton Path', extensions: ['json'] }],
+      });
+      if (res.canceled || !res.filePath) return ok(null);
+      fs.writeFileSync(res.filePath, JSON.stringify(data, null, 2), 'utf8');
+      return ok(res.filePath);
+    } catch (e) { return fail(e); }
+  });
+
+  ipcMain.handle('path:import', async () => {
+    try {
+      const win = getWindow();
+      const res = await dialog.showOpenDialog(win, {
+        title: 'Import Path', properties: ['openFile'],
+        filters: [{ name: 'Proton Path', extensions: ['json'] }],
+      });
+      if (res.canceled || !res.filePaths[0]) return ok(null);
+      const raw = fs.readFileSync(res.filePaths[0], 'utf8');
+      const data = JSON.parse(raw);
+      const newId = db.importPath(data);
+      return ok({ pathId: newId, state: db.getState() });
+    } catch (e) { return fail(e); }
+  });
+
   h('backup:list', () => backup.list());
   h('backup:openFolder', () => { shell.openPath(backup.dir()); return true; });
   h('app:openDataFolder', () => { shell.openPath(app.getPath('userData')); return true; });
+  h('app:openExternal', (url) => { if (/^https:\/\//.test(url)) shell.openExternal(url); return true; });
+  h('updates:check', () => checkForUpdates());
+}
+
+/* ============================================================
+   Update check — asks GitHub for the latest published release and
+   compares it to the running version. Fully optional: it only runs
+   when the user (or the app on launch) asks, fails silently with no
+   internet, and never sends any user data — just a read request.
+   ============================================================ */
+const https = require('https');
+const UPDATE_REPO = 'MostafaHazeim25/Proton';
+
+function cmpVersions(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) > (pb[i] || 0)) return 1; if ((pa[i] || 0) < (pb[i] || 0)) return -1; }
+  return 0;
+}
+
+function checkForUpdates() {
+  return new Promise((resolve) => {
+    const current = app.getVersion();
+    const opts = {
+      hostname: 'api.github.com',
+      path: `/repos/${UPDATE_REPO}/releases/latest`,
+      headers: { 'User-Agent': 'Proton-App', Accept: 'application/vnd.github+json' },
+      timeout: 6000,
+    };
+    const req = https.get(opts, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(body);
+          const latest = json.tag_name || json.name;
+          if (!latest) return resolve({ ok: true, updateAvailable: false, current });
+          const newer = cmpVersions(latest, current) > 0;
+          resolve({
+            ok: true, current,
+            updateAvailable: newer,
+            latestVersion: String(latest).replace(/^v/, ''),
+            url: json.html_url || `https://github.com/${UPDATE_REPO}/releases/latest`,
+          });
+        } catch (e) { resolve({ ok: false, updateAvailable: false, current, error: 'parse' }); }
+      });
+    });
+    req.on('error', () => resolve({ ok: false, updateAvailable: false, current, error: 'offline' }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, updateAvailable: false, current, error: 'timeout' }); });
+  });
 }
 
 module.exports = { register };
