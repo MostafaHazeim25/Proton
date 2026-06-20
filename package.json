@@ -1,7 +1,7 @@
 {
   "name": "proton",
   "productName": "Proton",
-  "version": "1.2.0",
+  "version": "2.2.0",
   "description": "Proton — offline learning tracker & knowledge base (Paths · Courses · Notes)",
   "author": {
     "name": "Mostafa Hazem"
@@ -58,7 +58,7 @@
       "shortcutName": "Proton",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "deleteAppDataOnUninstall": false,
+      "deleteAppDataOnUninstall": true,
       "artifactName": "Proton Setup.exe"
     },
     "portable": {

@@ -25,6 +25,11 @@ const ICON = {
   grip:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
   share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 15V4"/></svg>',
   download:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 5v14l11-7z"/></svg>',
+  pause:'<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="11" width="3" height="6"/><rect x="12" y="7" width="3" height="10"/><rect x="17" y="13" width="3" height="4"/></svg>',
+  trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 4H4v2a3 3 0 0 0 3 3M17 4h3v2a3 3 0 0 1-3 3"/></svg>',
 };
 
 /* ============== Constants ============== */
@@ -132,6 +137,8 @@ function render(){
   else if(v==='board') renderBoard();
   else if(v==='notes') NotesView.render(content);
   else if(v==='today') renderToday();
+  else if(v==='focus') renderFocus();
+  else if(v==='achievements') renderAchievements();
 }
 
 /* breadcrumb */
@@ -396,6 +403,289 @@ function onContentDragOver(e){
   if(after==null) content.insertBefore(dndEl, anchor); else content.insertBefore(dndEl, after);
 }
 
+/* ====== Focus page (Pomodoro + atom timer + task chooser) ====== */
+const Focus={ taskId:null, mode:'focus', remaining:0, total:0, timer:null, running:false,
+  focusMin:25, breakMin:5, elapsedFocus:0, subject:'Focus session', items:[], started:false };
+
+function focusReset(keepTarget){
+  pauseFocus&&pauseFocus();
+  Focus.mode='focus';
+  Focus.total=Focus.focusMin*60; Focus.remaining=Focus.total; Focus.running=false; Focus.elapsedFocus=0; Focus.started=false;
+  if(!keepTarget){ Focus.taskId=null; Focus.subject='Focus session'; Focus.items=[]; }
+}
+
+function renderFocus(){
+  crumb([{label:'Focus'}]);
+  const hasItems=Focus.items.length>0;
+  const checklist = hasItems
+    ? Focus.items.map((it,i)=>`<div class="fc-item ${it.done?'done':''}" data-fi="${i}">
+        <div class="check ${it.done?'on':''}">${ICON.check}</div><span>${esc(it.text)}</span></div>`).join('')
+    : `<div class="fc-empty">Nothing added yet. Type what you're working on, or pick from your paths.</div>`;
+  content.innerHTML=`
+  <div class="focus-page">
+    <div class="focus-left">
+      <div class="fp-card">
+        <div class="fp-title">What are you working on?</div>
+        <div class="fp-input-row">
+          <input id="fp-subject" placeholder="e.g. Static Routing lab…" value="${Focus.subject==='Focus session'?'':esc(Focus.subject)}">
+          <button class="btn btn-ghost btn-sm" id="fp-add" title="Add to checklist">${ICON.plus}</button>
+        </div>
+        <button class="btn btn-ghost btn-sm fp-choose" id="fp-choose">${ICON.layers} Choose from my paths</button>
+      </div>
+      <div class="fp-card">
+        <div class="fp-title">Session checklist</div>
+        <div class="fc-list" id="fc-list">${checklist}</div>
+        ${hasItems?`<button class="btn btn-ghost btn-sm" id="fp-clear" style="margin-top:8px">Clear list</button>`:''}
+      </div>
+    </div>
+    <div class="focus-right">
+      <div class="focus-subject" id="focus-subject">${esc(Focus.subject)}</div>
+      <div class="focus-mode"><button id="fm-focus" class="${Focus.mode==='focus'?'on':''}">Focus</button><button id="fm-break" class="${Focus.mode==='break'?'on':''}">Break</button></div>
+      <div class="focus-ring" id="focus-ring"></div>
+      <div class="focus-readout"><div class="focus-time" id="f-time">${fmtClock(Focus.remaining)}</div><div class="focus-label" id="f-lbl">${Focus.mode==='focus'?'FOCUS':'BREAK'}</div></div>
+      <div class="focus-controls">
+        <button class="btn btn-ghost btn-sm" id="f-reset">Reset</button>
+        <button class="btn btn-primary" id="f-toggle">${Focus.running?ICON.pause+' Pause':ICON.play+' Start'}</button>
+      </div>
+      <div class="focus-presets">
+        <span>Focus:</span>
+        <button data-fmin="15" class="${Focus.focusMin===15?'on':''}">15</button>
+        <button data-fmin="25" class="${Focus.focusMin===25?'on':''}">25</button>
+        <button data-fmin="50" class="${Focus.focusMin===50?'on':''}">50</button>
+        <span style="margin-left:10px">Break:</span>
+        <button data-bmin="5" class="${Focus.breakMin===5?'on':''}">5</button>
+        <button data-bmin="10" class="${Focus.breakMin===10?'on':''}">10</button>
+      </div>
+    </div>
+  </div>`;
+  if(!Focus.started){ Focus.total=(Focus.mode==='focus'?Focus.focusMin:Focus.breakMin)*60; if(!Focus.running) Focus.remaining=Focus.total; }
+  rebuildFocus();
+  wireFocus();
+}
+
+function wireFocus(){
+  const subj=$('#fp-subject');
+  if(subj){
+    subj.addEventListener('input',()=>{ Focus.subject=subj.value.trim()||'Focus session'; const fs=$('#focus-subject'); if(fs) fs.textContent=Focus.subject; });
+    subj.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); addFocusItem(subj.value); subj.value=''; } });
+  }
+  const add=$('#fp-add'); if(add) add.onclick=()=>{ const v=$('#fp-subject').value; addFocusItem(v); $('#fp-subject').value=''; };
+  const choose=$('#fp-choose'); if(choose) choose.onclick=focusChooser;
+  const clear=$('#fp-clear'); if(clear) clear.onclick=()=>{ Focus.items=[]; Focus.taskId=null; renderFocus(); };
+  // checklist toggles
+  document.querySelectorAll('#fc-list .fc-item').forEach(el=>el.onclick=()=>{
+    const i=+el.dataset.fi; const it=Focus.items[i]; if(!it) return;
+    it.done=!it.done;
+    if(it.id){ Store.toggleTask(it.id); }
+    renderFocus();
+  });
+  // timer controls
+  const setMode=(m)=>{ Focus.mode=m; pauseFocus(); Focus.started=false; Focus.total=(m==='focus'?Focus.focusMin:Focus.breakMin)*60; Focus.remaining=Focus.total; $('#fm-focus').classList.toggle('on',m==='focus'); $('#fm-break').classList.toggle('on',m==='break'); rebuildFocus(); };
+  $('#fm-focus').onclick=()=>setMode('focus');
+  $('#fm-break').onclick=()=>setMode('break');
+  $('#f-toggle').onclick=()=> Focus.running? pauseFocus() : startFocus();
+  $('#f-reset').onclick=()=>{ pauseFocus(); Focus.started=false; Focus.remaining=Focus.total; drawFocus(); };
+  document.querySelectorAll('[data-fmin]').forEach(b=>b.onclick=()=>{ Focus.focusMin=+b.dataset.fmin; document.querySelectorAll('[data-fmin]').forEach(x=>x.classList.toggle('on',x===b)); if(Focus.mode==='focus'){ pauseFocus(); Focus.started=false; Focus.total=Focus.focusMin*60; Focus.remaining=Focus.total; rebuildFocus(); } });
+  document.querySelectorAll('[data-bmin]').forEach(b=>b.onclick=()=>{ Focus.breakMin=+b.dataset.bmin; document.querySelectorAll('[data-bmin]').forEach(x=>x.classList.toggle('on',x===b)); if(Focus.mode==='break'){ pauseFocus(); Focus.started=false; Focus.total=Focus.breakMin*60; Focus.remaining=Focus.total; rebuildFocus(); } });
+}
+
+function addFocusItem(text){
+  const t=(text||'').trim(); if(!t) return;
+  Focus.items.push({ text:t, done:false });
+  if(Focus.subject==='Focus session') Focus.subject=t;
+  renderFocus();
+}
+
+function focusChooser(){
+  const goals=state.goals;
+  if(!goals.length){ toast('Create a path first'); return; }
+  let gId=goals[0].id;
+  const build=()=>{
+    const g=goals.find(x=>x.id===gId)||goals[0]; gId=g.id;
+    const courses=g.courses;
+    const cId=(window._fcC && courses.find(c=>c.id===window._fcC))?window._fcC:(courses[0]&&courses[0].id);
+    window._fcC=cId;
+    const c=courses.find(x=>x.id===cId);
+    const sections=c?c.sections:[];
+    const sId=(window._fcS && sections.find(s=>s.id===window._fcS))?window._fcS:(sections[0]&&sections[0].id);
+    window._fcS=sId;
+    const sct=sections.find(x=>x.id===sId);
+    const gOpts=goals.map(x=>`<option value="${x.id}" ${x.id===gId?'selected':''}>${esc(x.title)}</option>`).join('');
+    const cOpts=courses.map(x=>`<option value="${x.id}" ${x.id===cId?'selected':''}>${esc(x.title)}</option>`).join('')||'<option>—</option>';
+    const sOpts=sections.map(x=>`<option value="${x.id}" ${x.id===sId?'selected':''}>${esc(x.title)}</option>`).join('')||'<option>—</option>';
+    const tasks=sct?sct.tasks:[];
+    const tOpts=`<option value="__section">▶ Whole section (${tasks.length} task${tasks.length!==1?'s':''})</option>`+
+      tasks.map(t=>`<option value="${t.id}">${esc(t.text)}</option>`).join('');
+    openModal(`
+      <div class="modal-head"><div class="modal-title">Choose what to focus on</div></div>
+      <div class="modal-body">
+        <div class="field"><label>Path</label><div class="np-sel"><select id="fc-g">${gOpts}</select></div></div>
+        <div class="field"><label>Course</label><div class="np-sel"><select id="fc-c">${cOpts}</select></div></div>
+        <div class="field"><label>Section</label><div class="np-sel"><select id="fc-s">${sOpts}</select></div></div>
+        <div class="field"><label>Task</label><div class="np-sel"><select id="fc-t">${tOpts}</select></div></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+        <button class="btn btn-primary" id="fc-go">Start focusing</button>
+      </div>`);
+    $('#fc-g').onchange=e=>{ gId=e.target.value; window._fcC=null; window._fcS=null; build(); };
+    $('#fc-c').onchange=e=>{ window._fcC=e.target.value; window._fcS=null; build(); };
+    $('#fc-s').onchange=e=>{ window._fcS=e.target.value; build(); };
+    $('#fc-go').onclick=()=>{
+      const sel=$('#fc-t').value;
+      if(sel==='__section'){
+        Focus.subject=(sct?sct.title:'Section');
+        Focus.items=tasks.map(t=>({id:t.id,text:t.text,done:t.done}));
+        Focus.taskId=null;
+      }else{
+        const t=tasks.find(x=>x.id===sel);
+        Focus.subject=t?t.text:'Focus session';
+        Focus.items=t?[{id:t.id,text:t.text,done:t.done}]:[];
+        Focus.taskId=t?t.id:null;
+      }
+      closeModal(); renderFocus();
+    };
+  };
+  build();
+}
+
+function fmtClock(s){ const m=Math.floor(s/60), ss=s%60; return m+':'+(ss<10?'0':'')+ss; }
+
+/* ---- Animated atom (canvas): real-ish nucleus (protons+neutrons jitter)
+   + 3 electrons orbiting tilted elliptical paths at different speeds, with trails.
+   A thin progress ring around it tracks the timer. ---- */
+const Atom={ raf:null, t:0, dpr:1, size:250,
+  orbits:[
+    { rx:80, ry:28, tilt:0,             speed:1.70, phase:0 },
+    { rx:80, ry:28, tilt:Math.PI/5,     speed:1.30, phase:1.3 },
+    { rx:80, ry:28, tilt:2*Math.PI/5,   speed:1.95, phase:2.6 },
+    { rx:80, ry:28, tilt:3*Math.PI/5,   speed:1.05, phase:3.9 },
+    { rx:80, ry:28, tilt:4*Math.PI/5,   speed:1.50, phase:5.2 },
+  ],
+  trails:[[],[],[],[],[]] };
+
+function buildAtomCanvas(){
+  const el=$('#focus-ring'); if(!el) return;
+  if(el.dataset.built) return;
+  const S=Atom.size;
+  el.innerHTML=`<canvas id="atom-canvas" width="${S}" height="${S}" style="width:${S}px;height:${S}px;display:block"></canvas>`;
+  el.dataset.built='1';
+  Atom.dpr=Math.min(2, window.devicePixelRatio||1);
+  const cv=$('#atom-canvas');
+  cv.width=S*Atom.dpr; cv.height=S*Atom.dpr;
+  cv.getContext('2d').scale(Atom.dpr, Atom.dpr);
+  Atom.trails=[[],[],[],[],[]];
+  if(!Atom.raf) Atom.raf=requestAnimationFrame(atomFrame);
+}
+function stopAtom(){ if(Atom.raf){ cancelAnimationFrame(Atom.raf); Atom.raf=null; } }
+
+function atomFrame(){
+  const cv=$('#atom-canvas');
+  if(!cv){ Atom.raf=null; return; }   // user left the Focus page
+  const ctx=cv.getContext('2d');
+  const S=Atom.size, cx=S/2, cy=S/2;
+  const focusMode=Focus.mode==='focus';
+  const nucCol=focusMode?'#F3AC40':'#2DD4BF';
+  const eCol=focusMode?'#2DD4BF':'#F3AC40';
+  const running=Focus.running;
+  const dt = running ? 0.016 : 0.004;   // slow drift when paused, lively when running
+  Atom.t += dt;
+
+  ctx.clearRect(0,0,S,S);
+
+  /* progress ring */
+  const pct=Focus.total? (1-Focus.remaining/Focus.total) : 0;
+  const r=S/2-6;
+  ctx.lineWidth=6; ctx.lineCap='round';
+  ctx.strokeStyle='rgba(255,255,255,.06)';
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  if(pct>0){ ctx.strokeStyle=nucCol; ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+Math.PI*2*pct); ctx.stroke(); }
+
+  /* orbit paths (faint) */
+  Atom.orbits.forEach(o=>{
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(o.tilt);
+    ctx.strokeStyle=focusMode?'rgba(45,212,191,.28)':'rgba(243,172,64,.28)';
+    ctx.lineWidth=1.4; ctx.beginPath(); ctx.ellipse(0,0,o.rx,o.ry,0,0,Math.PI*2); ctx.stroke();
+    ctx.restore();
+  });
+
+  /* electrons with trails (drawn so some pass BEHIND nucleus for 3D feel) */
+  const positions=Atom.orbits.map((o,i)=>{
+    const ang=o.phase + Atom.t*o.speed;
+    const lx=Math.cos(ang)*o.rx, ly=Math.sin(ang)*o.ry;
+    const x=cx + lx*Math.cos(o.tilt) - ly*Math.sin(o.tilt);
+    const y=cy + lx*Math.sin(o.tilt) + ly*Math.cos(o.tilt);
+    const behind=Math.sin(ang)<0;   // back half of the ellipse
+    const tr=Atom.trails[i]; tr.push({x,y}); if(tr.length>14) tr.shift();
+    return {x,y,behind,tr};
+  });
+  const drawElectron=(p)=>{
+    for(let k=0;k<p.tr.length;k++){ const a=k/p.tr.length; ctx.globalAlpha=a*0.5; ctx.fillStyle=eCol; ctx.beginPath(); ctx.arc(p.tr[k].x,p.tr[k].y, 1+a*3.2,0,Math.PI*2); ctx.fill(); }
+    ctx.globalAlpha=1; ctx.fillStyle=eCol; ctx.shadowColor=eCol; ctx.shadowBlur=10;
+    ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+  };
+  positions.filter(p=>p.behind).forEach(drawElectron);
+
+  /* nucleus: clustered protons (accent) + neutrons (grey), gentle jitter */
+  const nucReal=[
+    {dx:0,dy:0,proton:true},{dx:-9,dy:-4,proton:false},{dx:9,dy:-5,proton:true},
+    {dx:-6,dy:7,proton:true},{dx:7,dy:7,proton:false},{dx:0,dy:-11,proton:false},
+    {dx:-12,dy:3,proton:false},{dx:12,dy:2,proton:true},{dx:2,dy:12,proton:true},
+  ];
+  const glowR=26+Math.sin(Atom.t*2)*2;
+  const g=ctx.createRadialGradient(cx,cy,2,cx,cy,glowR+14);
+  g.addColorStop(0, focusMode?'rgba(243,172,64,.38)':'rgba(45,212,191,.38)');
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,glowR+14,0,Math.PI*2); ctx.fill();
+  nucReal.forEach((n,idx)=>{
+    const j=running?1.4:0.5;
+    const jx=Math.sin(Atom.t*3+idx)*j, jy=Math.cos(Atom.t*2.6+idx*1.3)*j;
+    const x=cx+n.dx+jx, y=cy+n.dy+jy, rr=6.2;
+    const rg=ctx.createRadialGradient(x-2,y-2,1,x,y,rr);
+    if(n.proton){ rg.addColorStop(0,'#FFE6B0'); rg.addColorStop(.5,'#F3AC40'); rg.addColorStop(1,'#9c5e14'); }
+    else { rg.addColorStop(0,'#dfe7f0'); rg.addColorStop(.5,'#9fb2c8'); rg.addColorStop(1,'#5c6f86'); }
+    ctx.fillStyle=rg; ctx.beginPath(); ctx.arc(x,y,rr,0,Math.PI*2); ctx.fill();
+  });
+
+  /* electrons in front */
+  positions.filter(p=>!p.behind).forEach(drawElectron);
+
+  /* readout text */
+  const tEl=$('#f-time'); if(tEl) tEl.textContent=fmtClock(Focus.remaining);
+  const lEl=$('#f-lbl'); if(lEl) lEl.textContent=focusMode?'FOCUS':'BREAK';
+
+  Atom.raf=requestAnimationFrame(atomFrame);
+}
+
+function drawFocus(){ buildAtomCanvas(); }
+function rebuildFocus(){ const el=$('#focus-ring'); if(el){ el.dataset.built=''; } buildAtomCanvas(); }
+function startFocus(){
+  if(Focus.running) return; Focus.running=true;
+  const tg=$('#f-toggle'); if(tg) tg.innerHTML=ICON.pause+' Pause';
+  Focus.timer=setInterval(()=>{
+    Focus.remaining--;
+    if(Focus.mode==='focus') Focus.elapsedFocus++;
+    if(Focus.remaining<=0){ finishFocusPhase(); }
+    drawFocus();
+  },1000);
+}
+function pauseFocus(){ Focus.running=false; if(Focus.timer){ clearInterval(Focus.timer); Focus.timer=null; } const tg=$('#f-toggle'); if(tg) tg.innerHTML=ICON.play+' Start'; }
+function commitFocus(){ const mins=Math.round(Focus.elapsedFocus/60); if(mins>0){ Store.logFocus(Focus.taskId, mins); Focus.elapsedFocus=Focus.elapsedFocus%60; } }
+function finishFocusPhase(){
+  pauseFocus();
+  if(Focus.mode==='focus'){
+    commitFocus();
+    window.proton.notify('✅ Focus session done', 'Time for a '+Focus.breakMin+'-minute break.');
+    Focus.mode='break'; Focus.total=Focus.breakMin*60; Focus.remaining=Focus.total;
+    $('#fm-focus')&&$('#fm-focus').classList.remove('on'); $('#fm-break')&&$('#fm-break').classList.add('on');
+  }else{
+    window.proton.notify('Break over', 'Ready for another focus session?');
+    Focus.mode='focus'; Focus.total=Focus.focusMin*60; Focus.remaining=Focus.total;
+    $('#fm-break')&&$('#fm-break').classList.remove('on'); $('#fm-focus')&&$('#fm-focus').classList.add('on');
+  }
+  rebuildFocus();
+}
+
 /* ============== Board ============== */
 let dragId=null;
 let boardAddCol=null;
@@ -510,7 +800,267 @@ function openCourseFromBoard(cid){
   go('goal', f.g.id);
 }
 
-/* ============== Today ============== */
+/* ============== Achievements dashboard ============== */
+let achMonth = null;
+async function renderAchievements(){
+  crumb([{label:'Achievements'}]);
+  const now=new Date();
+  const y = achMonth? achMonth.y : now.getFullYear();
+  const m = achMonth? achMonth.m : now.getMonth();
+  const start=new Date(y, m, 1).getTime();
+  const end=new Date(y, m+1, 1).getTime();
+  const monthName=new Date(y,m,1).toLocaleDateString(undefined,{month:'long',year:'numeric'});
+
+  content.innerHTML=`<div class="ach-loading">Loading your achievements…</div>`;
+  let a=null;
+  try{ a=await window.proton.getAchievements(start, end); }catch(_){ a=null; }
+  if(!a){ content.innerHTML=`<div class="empty" style="margin-top:60px">${ICON.trophy}<p>Could not load achievements</p></div>`; return; }
+
+  const focusH=Math.floor(a.focusMinutes/60), focusM=a.focusMinutes%60;
+  const focusStr = a.focusMinutes>=60 ? `${focusH}h ${focusM}m` : `${a.focusMinutes}m`;
+  const maxDay=Math.max(1, ...Object.values(a.byDay||{}));
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  let heat='';
+  for(let d=1; d<=daysInMonth; d++){
+    const key=new Date(y,m,d).toISOString().slice(0,10);
+    const v=(a.byDay||{})[key]||0;
+    const lvl = v===0?0 : v/maxDay>0.66?3 : v/maxDay>0.33?2 : 1;
+    heat+=`<div class="heat-cell heat-${lvl}" title="${key}: ${v} task${v!==1?'s':''}"></div>`;
+  }
+  const maxPath=Math.max(1, ...(a.byPath||[]).map(p=>p.count));
+  const pathBars=(a.byPath||[]).length
+    ? a.byPath.map(p=>`<div class="ach-bar-row"><span class="ach-bar-label">${esc(p.title)}</span>
+        <div class="ach-bar"><i style="width:${Math.round(p.count/maxPath*100)}%;background:${p.color}"></i></div>
+        <span class="ach-bar-n">${p.count}</span></div>`).join('')
+    : `<div class="ach-empty">No tasks completed yet this month.</div>`;
+  const courseList=(a.coursesCompleted||[]).length
+    ? a.coursesCompleted.map(c=>`<div class="ach-course">${ICON.check}<span>${esc(c.title)}</span>${c.path?`<span class="ach-course-path">${esc(c.path)}</span>`:''}</div>`).join('')
+    : `<div class="ach-empty">No courses fully completed this month — keep going!</div>`;
+
+  achData=a; achCtx={y,m,monthName,focusStr};
+  content.innerHTML=`
+  <div class="ach-toolbar no-print">
+    <div class="board-bar" style="margin:0">
+      <button class="btn btn-ghost btn-sm" id="ach-prev">Prev</button>
+      <div class="page-title" style="font-family:'Space Grotesk';min-width:160px;text-align:center">${monthName}</div>
+      <button class="btn btn-ghost btn-sm" id="ach-next">Next</button>
+      <div class="ach-mode">
+        <button id="am-report" class="on">Report</button>
+        <button id="am-bang">✨ Big Bang</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" id="ach-png">${ICON.share} Save image</button>
+      <button class="btn btn-primary btn-sm" id="ach-print">${ICON.download} Save PDF / Print</button>
+    </div>
+  </div>
+  <div class="ach-sheet" id="ach-sheet">
+    <div class="ach-head">
+      <div class="ach-head-mark">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <g fill="none" stroke="#1a1206" stroke-width="4" opacity="0.85">
+            <ellipse cx="50" cy="50" rx="40" ry="15"/>
+            <ellipse cx="50" cy="50" rx="40" ry="15" transform="rotate(60 50 50)"/>
+            <ellipse cx="50" cy="50" rx="40" ry="15" transform="rotate(120 50 50)"/>
+          </g>
+          <circle cx="50" cy="50" r="11" fill="#1a1206"/>
+        </svg>
+      </div>
+      <div><div class="ach-head-title">Achievements Report</div><div class="ach-head-sub">${monthName} · Proton — make your own universe</div></div>
+    </div>
+    <div class="ach-stats">
+      <div class="ach-stat"><div class="n">${a.tasksCompleted}</div><div class="l">tasks completed</div></div>
+      <div class="ach-stat"><div class="n">${a.coursesCompleted.length}</div><div class="l">courses finished</div></div>
+      <div class="ach-stat"><div class="n">${focusStr}</div><div class="l">focus time</div></div>
+      <div class="ach-stat"><div class="n">${a.streak}</div><div class="l">day streak</div></div>
+      <div class="ach-stat"><div class="n">${a.activeDays}</div><div class="l">active days</div></div>
+    </div>
+    <div class="ach-grid">
+      <div class="ach-panel">
+        <div class="ach-panel-title">Progress by path</div>
+        ${pathBars}
+      </div>
+      <div class="ach-panel">
+        <div class="ach-panel-title">Courses completed</div>
+        <div class="ach-courses">${courseList}</div>
+      </div>
+    </div>
+    <div class="ach-panel">
+      <div class="ach-panel-title">Daily activity — ${a.tasksCompleted} task${a.tasksCompleted!==1?'s':''} this month</div>
+      <div class="heatmap">${heat}</div>
+      <div class="heat-legend"><span>Less</span><i class="heat-cell heat-0"></i><i class="heat-cell heat-1"></i><i class="heat-cell heat-2"></i><i class="heat-cell heat-3"></i><span>More</span></div>
+    </div>
+    <div class="ach-foot">Generated by Proton · ${new Date().toLocaleDateString()} · github.com/MostafaHazeim25/Proton</div>
+  </div>`;
+
+  $('#ach-prev').onclick=()=>{ achMonth={y: m===0?y-1:y, m: m===0?11:m-1}; renderAchievements(); };
+  $('#ach-next').onclick=()=>{ const nm=m===11?0:m+1, ny=m===11?y+1:y; const t=new Date(); if(new Date(ny,nm,1)>new Date(t.getFullYear(),t.getMonth(),1)) return; achMonth={y:ny,m:nm}; renderAchievements(); };
+  $('#am-bang').onclick=renderBigBang;
+  $('#ach-print').onclick=()=>{ window.print(); };
+  $('#ach-png').onclick=async ()=>{
+    const el=$('#ach-sheet'); const r=el.getBoundingClientRect();
+    try{ const p=await window.proton.captureRegion(Math.floor(r.x),Math.floor(r.y),Math.ceil(r.width),Math.ceil(r.height)); if(p) toast('Image saved'); }
+    catch(err){ notifyError('Could not save image'); }
+  };
+}
+
+/* ============== Big Bang — cosmic achievements ============== */
+let achData=null, achCtx=null, Bang={ raf:null, parts:[], phase:'idle', t:0, started:0 };
+function renderBigBang(){
+  const a=achData; if(!a){ renderAchievements(); return; }
+  crumb([{label:'Achievements'}]);
+  content.innerHTML=`
+  <div class="ach-toolbar no-print">
+    <div class="board-bar" style="margin:0">
+      <button class="btn btn-ghost btn-sm" id="bb-back">${ICON.caret} Back to report</button>
+      <div class="ach-mode" style="margin-left:8px">
+        <button id="am-report">Report</button>
+        <button id="am-bang" class="on">✨ Big Bang</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" id="bb-replay">↻ Replay</button>
+      <button class="btn btn-primary btn-sm" id="bb-png">${ICON.share} Save image</button>
+    </div>
+  </div>
+  <div class="bb-stage" id="bb-stage">
+    <canvas id="bb-canvas"></canvas>
+    <div class="bb-overlay" id="bb-overlay">
+      <div class="bb-proton" id="bb-proton" title="Click to ignite">
+        <span class="bb-core"></span>
+      </div>
+      <div class="bb-hint">Click the proton to ignite your universe</div>
+    </div>
+    <div class="bb-legend" id="bb-legend" style="opacity:0">
+      <div><i style="background:#FFD98A"></i> star = task done</div>
+      <div><i style="background:#8fd0ff"></i> planet = course finished</div>
+      <div><i style="background:#c9a6ff"></i> galaxy = a path</div>
+    </div>
+    <div class="bb-readout" id="bb-readout" style="opacity:0"></div>
+  </div>`;
+  $('#bb-back').onclick=()=>{ stopBang(); renderAchievements(); };
+  $('#am-report').onclick=()=>{ stopBang(); renderAchievements(); };
+  $('#bb-replay').onclick=()=>{ igniteBang(true); };
+  $('#bb-png').onclick=async ()=>{
+    const el=$('#bb-stage'); const r=el.getBoundingClientRect();
+    try{ const p=await window.proton.captureRegion(Math.floor(r.x),Math.floor(r.y),Math.ceil(r.width),Math.ceil(r.height)); if(p) toast('Image saved'); }
+    catch(_){ notifyError('Could not save image'); }
+  };
+  $('#bb-proton').onclick=()=>igniteBang(false);
+  setupBangCanvas();
+}
+
+function setupBangCanvas(){
+  const stage=$('#bb-stage'), cv=$('#bb-canvas'); if(!cv) return;
+  const dpr=Math.min(2, window.devicePixelRatio||1);
+  const resize=()=>{ if(!document.body.contains(cv)){ if(Bang._resize){ window.removeEventListener('resize',Bang._resize); Bang._resize=null; } return; } const r=stage.getBoundingClientRect(); cv.width=r.width*dpr; cv.height=r.height*dpr; cv.style.width=r.width+'px'; cv.style.height=r.height+'px'; const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); Bang.w=r.width; Bang.h=r.height; };
+  resize(); Bang._resize=resize; window.addEventListener('resize', resize);
+  Bang.phase='idle'; Bang.parts=[]; drawBangIdle();
+}
+function drawBangIdle(){
+  const cv=$('#bb-canvas'); if(!cv){ Bang.raf=null; return; }
+  const ctx=cv.getContext('2d'); ctx.clearRect(0,0,Bang.w,Bang.h);
+  // faint starfield backdrop
+  starfield(ctx);
+  if(Bang.phase==='idle'){ Bang.raf=requestAnimationFrame(drawBangIdle); }
+}
+let _stars=null;
+function starfield(ctx){
+  if(!_stars){ _stars=[]; for(let i=0;i<90;i++) _stars.push({x:Math.random(),y:Math.random(),r:Math.random()*1.3+0.2,tw:Math.random()*6}); }
+  ctx.save();
+  _stars.forEach(s=>{ const a=0.3+0.5*Math.abs(Math.sin(Bang.t*0.6+s.tw)); ctx.globalAlpha=a*0.5; ctx.fillStyle='#cfe9e4'; ctx.beginPath(); ctx.arc(s.x*Bang.w, s.y*Bang.h, s.r,0,Math.PI*2); ctx.fill(); });
+  ctx.restore();
+}
+
+function igniteBang(replay){
+  const a=achData; if(!a) return;
+  const ov=$('#bb-overlay'); if(ov) ov.classList.add('gone');
+  const cv=$('#bb-canvas'); if(!cv) return;
+  const cx=Bang.w/2, cy=Bang.h/2;
+  // Build particles from real achievements
+  const parts=[];
+  const palette=(a.byPath&&a.byPath.length)?a.byPath.map(p=>p.color):['#2DD4BF'];
+  const mk=(type,color,size)=>{
+    const ang=Math.random()*Math.PI*2;
+    const spd=(type==='galaxy'?1.1:type==='planet'?1.9:2.6)*(0.6+Math.random()*0.9);
+    // target ring radius by type
+    const ring=type==='galaxy'? (70+Math.random()*40) : type==='planet'? (120+Math.random()*70) : (150+Math.random()*120);
+    const ta=Math.random()*Math.PI*2;
+    parts.push({ x:cx,y:cy, vx:Math.cos(ang)*spd*60, vy:Math.sin(ang)*spd*60,
+      tx:cx+Math.cos(ta)*ring, ty:cy+Math.sin(ta)*ring*0.62, color, size, type, tw:Math.random()*6, spin:ta, ring, sp:(0.2+Math.random()*0.5)*(Math.random()<.5?-1:1) });
+  };
+  // galaxies (paths)
+  (a.byPath||[]).forEach((p,i)=> mk('galaxy', p.color, 3.2));
+  // planets (courses completed)
+  for(let i=0;i<a.coursesCompleted.length;i++) mk('planet', '#8fd0ff', 4.2);
+  // stars (tasks completed) — cap for perf
+  const starN=Math.min(400, a.tasksCompleted);
+  for(let i=0;i<starN;i++) mk('star', palette[i%palette.length], 1.6+Math.random()*1.4);
+  // a little extra cosmic dust so even small months feel alive
+  for(let i=0;i<120;i++) mk('star', '#cfe9e4', 0.8+Math.random()*1.2);
+  // comet for streak
+  if(a.streak>0){ parts.push({comet:true, x:cx, y:cy, vx:(Math.random()<.5?-1:1)*220, vy:-120, color:'#FFE6B0', size:2.6, tail:[] }); }
+  Bang.parts=parts; Bang.phase='boom'; Bang.started=performance.now();
+  // flash
+  flashBang();
+  if(Bang.raf) cancelAnimationFrame(Bang.raf);
+  Bang.raf=requestAnimationFrame(bangFrame);
+  // reveal numbers after the dust settles
+  setTimeout(()=>{ const r=$('#bb-readout'); if(r){ r.innerHTML=bangReadout(a); r.style.opacity='1'; } const lg=$('#bb-legend'); if(lg) lg.style.opacity='1'; }, 2600);
+}
+function flashBang(){ const s=$('#bb-stage'); if(!s) return; const f=document.createElement('div'); f.className='bb-flash'; s.appendChild(f); setTimeout(()=>f.remove(),700); }
+function bangReadout(a){
+  const fh=Math.floor(a.focusMinutes/60), fm=a.focusMinutes%60; const fs=a.focusMinutes>=60?`${fh}h ${fm}m`:`${a.focusMinutes}m`;
+  return `<div class="bb-title">Your universe · ${achCtx?achCtx.monthName:''}</div>
+    <div class="bb-nums">
+      <div><b>${a.tasksCompleted}</b><span>stars (tasks)</span></div>
+      <div><b>${a.coursesCompleted.length}</b><span>planets (courses)</span></div>
+      <div><b>${(a.byPath||[]).length}</b><span>galaxies (paths)</span></div>
+      <div><b>${fs}</b><span>focus energy</span></div>
+      <div><b>${a.streak}</b><span>day streak comet</span></div>
+    </div>`;
+}
+function bangFrame(){
+  const cv=$('#bb-canvas'); if(!cv){ Bang.raf=null; return; }
+  const ctx=cv.getContext('2d'); const W=Bang.w,H=Bang.h, cx=W/2, cy=H/2;
+  Bang.t+=0.016;
+  const el=performance.now()-Bang.started; const settle=Math.min(1, el/2200); // 0..1 ease to targets
+  ctx.clearRect(0,0,W,H);
+  // nebula glow
+  const ng=ctx.createRadialGradient(cx,cy,10,cx,cy,Math.max(W,H)*0.6);
+  ng.addColorStop(0,'rgba(243,172,64,'+(0.10*(1-settle)+0.03)+')');
+  ng.addColorStop(0.4,'rgba(45,212,191,0.04)');
+  ng.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=ng; ctx.fillRect(0,0,W,H);
+  starfield(ctx);
+  const ease=1-Math.pow(1-settle,3);
+  Bang.parts.forEach(p=>{
+    if(p.comet){
+      p.x+=p.vx*0.016; p.y+=p.vy*0.016; p.vy+=20*0.016;
+      p.tail.push({x:p.x,y:p.y}); if(p.tail.length>22) p.tail.shift();
+      for(let k=0;k<p.tail.length;k++){ const al=k/p.tail.length; ctx.globalAlpha=al*0.6; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.tail[k].x,p.tail[k].y,al*2.4,0,Math.PI*2); ctx.fill(); }
+      ctx.globalAlpha=1; ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p.x,p.y,p.size,0,Math.PI*2); ctx.fill();
+      return;
+    }
+    // explode then ease toward target ring
+    const ex=cx+(p.x===cx?0:0); // unused
+    // free-fly position
+    p.fx=(p.fx==null?p.x:p.fx)+p.vx*0.016*(1-settle);
+    p.fy=(p.fy==null?p.y:p.fy)+p.vy*0.016*(1-settle);
+    // orbit angle for settled galaxies/planets
+    p.spin+=p.sp*0.016;
+    const ringX=cx+Math.cos(p.spin)*p.ring, ringY=cy+Math.sin(p.spin)*p.ring*0.62;
+    const x=p.fx*(1-ease)+ringX*ease;
+    const y=p.fy*(1-ease)+ringY*ease;
+    const tw=0.6+0.4*Math.sin(Bang.t*2+p.tw);
+    ctx.globalAlpha=1;
+    if(p.type==='galaxy'){ ctx.shadowColor=p.color; ctx.shadowBlur=18; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(x,y,p.size+1.5,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0; }
+    else if(p.type==='planet'){ ctx.shadowColor=p.color; ctx.shadowBlur=10; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(x,y,p.size,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0; }
+    else { ctx.globalAlpha=tw; ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(x,y,p.size,0,Math.PI*2); ctx.fill(); }
+  });
+  ctx.globalAlpha=1;
+  Bang.raf=requestAnimationFrame(bangFrame);
+}
+function stopBang(){ if(Bang.raf){ cancelAnimationFrame(Bang.raf); Bang.raf=null; } if(Bang._resize){ window.removeEventListener('resize', Bang._resize); Bang._resize=null; } Bang.phase='idle'; }
+
 function renderToday(){
   crumb([{label:'Today'}]);
   const items=allTasksToday();

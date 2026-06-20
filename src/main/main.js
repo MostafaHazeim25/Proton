@@ -46,6 +46,10 @@ if (!gotLock) {
     { scheme: 'protonfile', privileges: { standard: true, secure: true, supportFetchAPI: true, bypassCSP: false } },
   ]);
 
+  // make notifications & taskbar show "Proton" instead of "electron.app.Proton"
+  app.setName('Proton');
+  if (process.platform === 'win32') app.setAppUserModelId('com.mostafahazem.proton');
+
   app.whenReady().then(init);
 }
 
@@ -100,7 +104,7 @@ function createWindow() {
   const ws = windowState.read();
   mainWindow = new BrowserWindow({
     width: ws.width, height: ws.height, x: ws.x, y: ws.y,
-    minWidth: 900, minHeight: 600,
+    minWidth: 480, minHeight: 560,
     backgroundColor: '#0A1320',
     show: false,
     title: 'Proton',

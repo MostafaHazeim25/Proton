@@ -7,7 +7,7 @@
    handlers return immediately.
    ============================================================ */
 
-const { ipcMain, dialog, shell, app } = require('electron');
+const { ipcMain, dialog, shell, app, Notification } = require('electron');
 const fs = require('fs');
 const db = require('./db');
 const files = require('./files');
@@ -46,6 +46,31 @@ function register(getWindow) {
   h('section:reorder', (courseId, ids) => db.reorderSections(courseId, ids));
   h('task:reorder', (sectionId, ids) => db.reorderTasks(sectionId, ids));
   h('task:bulkCreate', (sectionId, texts) => db.bulkCreateTasks(sectionId, texts));
+  h('focus:log', (taskId, minutes) => { db.logFocus(taskId, minutes); return true; });
+  h('achievements:get', (start, end) => db.getAchievements(start, end));
+  ipcMain.handle('app:captureRegion', async (_evt, x, y, w, hgt) => {
+    try {
+      const win = getWindow();
+      const img = await win.webContents.capturePage({ x: Math.max(0, x | 0), y: Math.max(0, y | 0), width: w | 0, height: hgt | 0 });
+      const res = await dialog.showSaveDialog(win, {
+        title: 'Save achievements image', defaultPath: 'proton-achievements.png',
+        filters: [{ name: 'PNG Image', extensions: ['png'] }],
+      });
+      if (res.canceled || !res.filePath) return ok(null);
+      fs.writeFileSync(res.filePath, img.toPNG());
+      return ok(res.filePath);
+    } catch (e) { return fail(e); }
+  });
+  h('notify:show', (title, body) => {
+    try {
+      if (Notification.isSupported()) {
+        const n = new Notification({ title: String(title || 'Proton'), body: String(body || ''), silent: false });
+        n.on('click', () => { const w = getWindow(); if (w) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); } });
+        n.show();
+      }
+    } catch (_) {}
+    return true;
+  });
   h('app:reset', () => db.resetAll());
 
   /* ---------- tasks ---------- */

@@ -41,6 +41,10 @@ const api = {
   reorderSections: (courseId, ids) => call('section:reorder', courseId, ids),
   reorderTasks: (sectionId, ids) => call('task:reorder', sectionId, ids),
   bulkCreateTasks: (sectionId, texts) => call('task:bulkCreate', sectionId, texts),
+  logFocus: (taskId, minutes) => call('focus:log', taskId, minutes),
+  getAchievements: (start, end) => call('achievements:get', start, end),
+  captureRegion: (x, y, w, h) => call('app:captureRegion', x, y, w, h),
+  notify: (title, body) => call('notify:show', title, body),
   resetApp: () => call('app:reset'),
 
   // tasks

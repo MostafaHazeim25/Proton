@@ -190,6 +190,24 @@ const Store = {
     if (f) f.t.text = text;
     P.updateTask(id, { text }).catch(() => {});
   },
+  setTaskDue(id, dueAt, remindBefore) {
+    const f = this.findTask(id);
+    if (f) { f.t.dueAt = dueAt || null; f.t.remindBefore = remindBefore || 0; f.t.reminded = false; }
+    P.updateTask(id, { due_at: dueAt || null, remind_before: remindBefore || 0, reminded: false }).catch(() => {});
+  },
+  clearTaskDue(id) {
+    const f = this.findTask(id);
+    if (f) { f.t.dueAt = null; f.t.remindBefore = 0; f.t.reminded = false; }
+    P.updateTask(id, { due_at: null, remind_before: 0, reminded: false }).catch(() => {});
+  },
+  markReminded(id) {
+    const f = this.findTask(id);
+    if (f) f.t.reminded = true;
+    P.updateTask(id, { reminded: true }).catch(() => {});
+  },
+  logFocus(taskId, minutes) {
+    P.logFocus(taskId, minutes).catch(() => {});
+  },
   delTask(id) {
     const f = this.findTask(id);
     if (f) { f.s.tasks = f.s.tasks.filter((t) => t.id !== id); this._syncStatus(f.c); }

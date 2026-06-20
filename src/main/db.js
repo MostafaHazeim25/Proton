@@ -72,6 +72,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   done INTEGER DEFAULT 0,
   today INTEGER DEFAULT 0,
   done_at INTEGER,
+  due_at INTEGER,
+  remind_before INTEGER DEFAULT 0,
+  reminded INTEGER DEFAULT 0,
   position INTEGER DEFAULT 0,
   created_at TEXT,
   updated_at TEXT,
@@ -117,6 +120,14 @@ CREATE TABLE IF NOT EXISTS streaks (
 CREATE TABLE IF NOT EXISTS statistics (
   key TEXT PRIMARY KEY,
   value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS focus_sessions (
+  id TEXT PRIMARY KEY,
+  task_id TEXT,
+  minutes INTEGER DEFAULT 0,
+  day TEXT,
+  created_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_courses_path ON courses(path_id);
@@ -186,12 +197,23 @@ function recoverCorrupt(dbPath, badDb) {
   return fresh;
 }
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 function runMigrations() {
-  // Place future ALTER TABLE migrations here, guarded by schema_version.
   const v = parseInt(getMeta('schema_version') || '0', 10);
   if (v < 1) {
-    // baseline — nothing to migrate yet
+    // baseline
+  }
+  if (v < 2) {
+    // add deadline/reminder columns to existing tasks tables
+    const cols = db.prepare("PRAGMA table_info(tasks)").all().map((c) => c.name);
+    if (!cols.includes('due_at')) db.exec('ALTER TABLE tasks ADD COLUMN due_at INTEGER');
+    if (!cols.includes('remind_before')) db.exec('ALTER TABLE tasks ADD COLUMN remind_before INTEGER DEFAULT 0');
+    if (!cols.includes('reminded')) db.exec('ALTER TABLE tasks ADD COLUMN reminded INTEGER DEFAULT 0');
+    // focus sessions (Pomodoro / timer) for the achievements dashboard
+    db.exec(`CREATE TABLE IF NOT EXISTS focus_sessions (
+      id TEXT PRIMARY KEY, task_id TEXT, minutes INTEGER DEFAULT 0,
+      day TEXT, created_at TEXT
+    )`);
   }
 }
 
@@ -289,10 +311,12 @@ function insertSectionRow(s) {
     .run({ ...s, legacy_notes: s.legacy_notes || '', collapsed: s.collapsed ? 1 : 0, position: s.position || 0, t: nowISO() });
 }
 function insertTaskRow(t) {
-  db.prepare(`INSERT INTO tasks(id,section_id,text,done,today,done_at,position,created_at,updated_at)
-              VALUES(@id,@section_id,@text,@done,@today,@done_at,@position,@t,@t)`)
+  db.prepare(`INSERT INTO tasks(id,section_id,text,done,today,done_at,due_at,remind_before,reminded,position,created_at,updated_at)
+              VALUES(@id,@section_id,@text,@done,@today,@done_at,@due_at,@remind_before,@reminded,@position,@t,@t)`)
     .run({ ...t, text: t.text || '', done: t.done ? 1 : 0, today: t.today ? 1 : 0,
-           done_at: t.done_at || null, position: t.position || 0, t: nowISO() });
+           done_at: t.done_at || null, due_at: t.due_at || null,
+           remind_before: t.remind_before || 0, reminded: t.reminded ? 1 : 0,
+           position: t.position || 0, t: nowISO() });
 }
 function insertNoteRow(n) {
   db.prepare(`INSERT INTO notes(id,title,content,course_id,section_id,position,created_at,updated_at)
@@ -346,6 +370,7 @@ function getState() {
         id: s.id, title: s.title, collapsed: !!s.collapsed,
         tasks: (taskBySection[s.id] || []).map((t) => ({
           id: t.id, text: t.text, done: !!t.done, today: !!t.today, doneAt: t.done_at,
+          dueAt: t.due_at || null, remindBefore: t.remind_before || 0, reminded: !!t.reminded,
         })),
         notes: (notesBySection[s.id] || []).map((n) => ({
           id: n.id, title: n.title, updatedAt: n.updated_at,
@@ -464,10 +489,15 @@ function updateTask(id, data) {
   if (!cur) return;
   const done = data.done === undefined ? cur.done : (data.done ? 1 : 0);
   const doneAt = done && !cur.done ? Date.now() : (done ? cur.done_at : null);
-  db.prepare('UPDATE tasks SET text=@text,done=@done,today=@today,done_at=@done_at,updated_at=@t WHERE id=@id')
+  const dueAt = data.due_at === undefined ? cur.due_at : (data.due_at || null);
+  const remindBefore = data.remind_before === undefined ? cur.remind_before : (data.remind_before || 0);
+  // reset reminded when the schedule changes (so a new reminder can fire)
+  let reminded = data.reminded === undefined ? cur.reminded : (data.reminded ? 1 : 0);
+  if (data.due_at !== undefined || data.remind_before !== undefined) reminded = data.reminded ? 1 : 0;
+  db.prepare('UPDATE tasks SET text=@text,done=@done,today=@today,done_at=@done_at,due_at=@due_at,remind_before=@remind_before,reminded=@reminded,updated_at=@t WHERE id=@id')
     .run({ id, text: data.text ?? cur.text, done,
            today: data.today === undefined ? cur.today : (data.today ? 1 : 0),
-           done_at: doneAt, t: nowISO() });
+           done_at: doneAt, due_at: dueAt, remind_before: remindBefore, reminded, t: nowISO() });
   if (done && !cur.done) logActivity();
   syncCourseStatusForTask(id);
 }
@@ -637,6 +667,77 @@ function search(query) {
 function logActivity() {
   const k = today();
   db.prepare('INSERT INTO streaks(day,count) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET count=count+1').run(k);
+}
+
+function logFocus(taskId, minutes) {
+  const m = Math.max(0, Math.round(minutes || 0));
+  if (!m) return;
+  db.prepare('INSERT INTO focus_sessions(id,task_id,minutes,day,created_at) VALUES(?,?,?,?,?)')
+    .run(uid(), taskId || null, m, today(), nowISO());
+}
+
+/* Achievements / report for a date range [startMs, endMs).
+   Returns totals, per-path breakdown, daily activity, streak, focus minutes. */
+function getAchievements(startMs, endMs) {
+  const s = Number(startMs) || 0;
+  const e = Number(endMs) || Date.now();
+  // completed tasks in range (done_at is ms)
+  const doneTasks = db.prepare(
+    `SELECT t.id, t.text, t.done_at, s.course_id, c.path_id
+       FROM tasks t JOIN sections s ON s.id=t.section_id
+       JOIN courses c ON c.id=s.course_id
+      WHERE t.done=1 AND t.done_at>=? AND t.done_at<?`
+  ).all(s, e);
+
+  const pathName = {};
+  db.prepare('SELECT id,title,color FROM learning_paths').all().forEach((p) => { pathName[p.id] = { title: p.title, color: p.color }; });
+
+  const byPath = {};
+  const byDay = {};
+  doneTasks.forEach((t) => {
+    byPath[t.path_id] = (byPath[t.path_id] || 0) + 1;
+    const d = new Date(t.done_at).toISOString().slice(0, 10);
+    byDay[d] = (byDay[d] || 0) + 1;
+  });
+
+  // courses fully completed in range (all tasks done, last completion in range)
+  const courses = db.prepare(
+    `SELECT c.id, c.title, c.path_id,
+            COUNT(t.id) total, SUM(t.done) done, MAX(t.done_at) last_done
+       FROM courses c
+       JOIN sections s ON s.course_id=c.id
+       JOIN tasks t ON t.section_id=s.id
+      GROUP BY c.id`
+  ).all();
+  const coursesCompleted = courses.filter((c) => c.total > 0 && c.done === c.total && c.last_done >= s && c.last_done < e)
+    .map((c) => ({ title: c.title, path: (pathName[c.path_id] || {}).title || '' }));
+
+  // focus minutes in range
+  const focus = db.prepare('SELECT COALESCE(SUM(minutes),0) m, COUNT(*) n FROM focus_sessions WHERE created_at>=? AND created_at<?')
+    .get(new Date(s).toISOString(), new Date(e).toISOString());
+
+  // streak (current, all-time)
+  const allDays = db.prepare('SELECT day,count FROM streaks WHERE count>0 ORDER BY day').all();
+  const daySet = new Set(allDays.map((d) => d.day));
+  let streak = 0; const dt = new Date();
+  for (let i = 0; i < 800; i++) {
+    const key = dt.toISOString().slice(0, 10);
+    if (daySet.has(key)) { streak++; dt.setDate(dt.getDate() - 1); }
+    else if (i === 0) { dt.setDate(dt.getDate() - 1); }
+    else break;
+  }
+
+  return {
+    range: { start: s, end: e },
+    tasksCompleted: doneTasks.length,
+    coursesCompleted,
+    byPath: Object.keys(byPath).map((pid) => ({ title: (pathName[pid] || {}).title || 'Unknown', color: (pathName[pid] || {}).color || '#2DD4BF', count: byPath[pid] })).sort((a, b) => b.count - a.count),
+    byDay,
+    focusMinutes: focus.m || 0,
+    focusSessions: focus.n || 0,
+    streak,
+    activeDays: Object.keys(byDay).length,
+  };
 }
 function getStats() {
   const paths = db.prepare('SELECT COUNT(*) n FROM learning_paths').get().n;
@@ -892,7 +993,7 @@ module.exports = {
   createTask, updateTask, deleteTask, reorderTasks, bulkCreateTasks,
   listNotes, getNote, createNote, updateNote, deleteNote, moveNote,
   addNoteImage, addNoteAttachment,
-  search, logActivity,
+  search, logActivity, logFocus, getAchievements,
   getSetting, setSetting,
   exportAll, importAll, exportPath, importPath, resetAll,
 };
