@@ -453,3 +453,11 @@ input,textarea{font-family:inherit;color:inherit}
 .welcome-actions .btn{ min-width:240px; justify-content:center; }
 .import-path-card{ border-color:rgba(45,212,191,.35); }
 .import-path-card:hover{ border-color:var(--teal); color:var(--teal); }
+
+/* task drag handle + danger footer button */
+.task{ position:relative; }
+.task-grip{ opacity:0; }
+.task:hover .task-grip{ opacity:.6; }
+.task.dragging{ opacity:.55; outline:1.5px dashed var(--teal); outline-offset:2px; border-radius:8px; }
+.foot-btn-danger{ color:#fca5a5; border-color:rgba(248,113,113,.25); }
+.foot-btn-danger:hover{ color:#fff; background:rgba(248,113,113,.16); border-color:rgba(248,113,113,.5); }

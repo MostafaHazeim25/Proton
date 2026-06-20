@@ -144,6 +144,25 @@ const Store = {
     f.c.sections = orderedIds.map((id) => map.get(id)).filter(Boolean);
     P.reorderSections(courseId, orderedIds).catch(() => {});
   },
+  // Reorder tasks within a section AND move a task across sections.
+  // orderedIds = final full list of task ids for the target section.
+  reorderTasks(targetSectionId, orderedIds) {
+    const target = this.findSection(targetSectionId);
+    if (!target) return;
+    // gather task objects from anywhere in the tree
+    const all = new Map();
+    this.state.goals.forEach((g) => g.courses.forEach((c) => c.sections.forEach((s) => s.tasks.forEach((t) => all.set(t.id, { t, s })))));
+    // remove moved tasks from their old sections
+    orderedIds.forEach((id) => { const e = all.get(id); if (e && e.s !== target.s) e.s.tasks = e.s.tasks.filter((x) => x.id !== id); });
+    // rebuild the target section in the requested order
+    target.s.tasks = orderedIds.map((id) => (all.get(id) || {}).t).filter(Boolean);
+    this._syncStatus(target.c);
+    P.reorderTasks(targetSectionId, orderedIds).catch(() => {});
+  },
+  async bulkAddTasks(sectionId, texts) {
+    await P.bulkCreateTasks(sectionId, texts);
+    await this.reload();
+  },
 
   /* ---------- TASKS ---------- */
   async addTask(sectionId) {

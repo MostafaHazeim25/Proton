@@ -186,3 +186,8 @@
   .nt-tree{ width:auto; min-width:0; max-height:240px; border-right:0; border-bottom:1px solid var(--line); }
   .nt-doc-inner{ padding:22px 18px 80px; }
 }
+
+/* compact inline "Notes" button beside the section title */
+.section-notes-link.inline{ margin:0 0 0 10px; padding:3px 9px; font-size:11.5px; gap:5px; line-height:1; }
+.section-notes-link.inline svg{ width:13px; height:13px; }
+.section-notes-link.inline .snl-label{ font-weight:500; }

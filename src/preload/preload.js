@@ -39,6 +39,9 @@ const api = {
   updateSection: (id, data) => call('section:update', id, data),
   deleteSection: (id) => call('section:delete', id),
   reorderSections: (courseId, ids) => call('section:reorder', courseId, ids),
+  reorderTasks: (sectionId, ids) => call('task:reorder', sectionId, ids),
+  bulkCreateTasks: (sectionId, texts) => call('task:bulkCreate', sectionId, texts),
+  resetApp: () => call('app:reset'),
 
   // tasks
   createTask: (sectionId, data) => call('task:create', sectionId, data),

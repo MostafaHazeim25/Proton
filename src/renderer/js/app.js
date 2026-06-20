@@ -277,13 +277,14 @@ function renderGoal(){
           <span class="drag-grip sec-grip" title="Drag to reorder">${ICON.grip}</span>
           <span class="section-name" contenteditable="true" data-edit-section="${s.id}">${esc(s.title)}</span>
           <span class="section-count">${sd}/${s.tasks.length}</span>
+          <button class="section-notes-link inline" data-action="open-notes" data-c="${c.id}" data-s="${s.id}" title="Open notes">${ICON.note}${ncount? ncount+'' : ''}<span class="snl-label">Notes</span></button>
           <div style="flex:1"></div>
           <button class="icon-btn" data-action="rename-section" data-id="${s.id}" title="Rename section">${ICON.edit}</button>
           <button class="icon-btn danger" data-action="del-section" data-id="${s.id}" title="Delete section">${ICON.trash}</button>
-        </div>
-        <button class="section-notes-link" data-action="open-notes" data-c="${c.id}" data-s="${s.id}">${ICON.note}${ncount? ncount+' note'+(ncount!==1?'s':'')+' · open' : 'Open notes'}</button>`;
+        </div>`;
       s.tasks.forEach(t=>{
-        html+=`<div class="task">
+        html+=`<div class="task" data-task="${t.id}">
+          <span class="drag-grip task-grip" title="Drag to reorder / move">${ICON.grip}</span>
           <div class="check ${t.done?'on':''}" data-toggle="${t.id}">${ICON.check}</div>
           <span class="task-text ${t.done?'done':''}" contenteditable="true" data-edit-task="${t.id}">${esc(t.text)}</span>
           <button class="icon-btn task-today-btn ${t.today?'on':''}" data-action="star-task" data-id="${t.id}" title="Pin to today">${t.today?ICON.star:ICON.starOff}</button>
@@ -355,6 +356,37 @@ function bindGoalDnD(g){
       if(after==null) body.insertBefore(dndEl, anchor); else body.insertBefore(dndEl, after);
     });
   });
+
+  // ---- tasks (reorder within a section AND move across sections) ----
+  content.querySelectorAll('.task').forEach(el=>{
+    const grip=el.querySelector('.task-grip');
+    if(grip){ grip.addEventListener('mousedown',e=>{ e.stopPropagation(); el.draggable=true; }); grip.addEventListener('click',e=>e.stopPropagation()); }
+    el.addEventListener('dragstart',e=>{ e.stopPropagation(); dndEl=el; dndType='task'; el.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
+    el.addEventListener('mouseup',()=>{ if(!el.classList.contains('dragging')) el.draggable=false; });
+    el.addEventListener('dragend',()=>{
+      el.draggable=false; el.classList.remove('dragging');
+      if(dndType==='task'){
+        const sec=el.closest('.section'); const sid=sec&&sec.dataset.section;
+        if(sid){ const ids=[...sec.querySelectorAll('.task')].map(x=>x.dataset.task); Store.reorderTasks(sid, ids); render(); }
+      }
+      dndEl=null; dndType=null;
+    });
+  });
+  content.querySelectorAll('.section').forEach(sec=>{
+    sec.addEventListener('dragover',e=>{
+      if(dndType!=='task'||!dndEl) return;
+      e.preventDefault(); e.stopPropagation();
+      const after=dragAfterTasks(sec, e.clientY);
+      const anchor=sec.querySelector('.add-inline');
+      if(after==null) sec.insertBefore(dndEl, anchor); else sec.insertBefore(dndEl, after);
+    });
+  });
+}
+function dragAfterTasks(sec, y){
+  const els=[...sec.querySelectorAll('.task:not(.dragging)')];
+  let best={offset:-Infinity, el:null};
+  for(const child of els){ const box=child.getBoundingClientRect(); const off=y-box.top-box.height/2; if(off<0 && off>best.offset) best={offset:off, el:child}; }
+  return best.el;
 }
 function onContentDragOver(e){
   if(dndType!=='course'||!dndEl) return;
@@ -755,6 +787,34 @@ function wireChrome(){
     });
   };
   const ub=$('#updates-btn'); if(ub) ub.onclick=()=>{ toast('Checking for updates…'); checkUpdates(true); };
+  const rb=$('#reset-btn'); if(rb) rb.onclick=resetFlow;
+}
+
+/* ====== Reset everything (back to a brand-new state) ====== */
+function resetFlow(){
+  openModal(`
+    <div class="modal-head"><div class="modal-title">Reset everything?</div></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:14px;line-height:1.6">This permanently deletes <b>all</b> your paths, courses, tasks, and notes, and returns Proton to a brand-new, empty state. This cannot be undone.</p>
+      <p style="color:var(--muted);font-size:13px;margin-top:10px">Tip: use <b>Export</b> first if you want a backup you can re-import later.</p>
+      <div class="field" style="margin-top:14px"><label>Type <b>RESET</b> to confirm</label><input id="reset-confirm" placeholder="RESET" autocomplete="off"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-action="close-modal">Cancel</button>
+      <button class="btn btn-primary" id="reset-go" style="background:var(--red);color:#fff;box-shadow:none" disabled>Reset everything</button>
+    </div>`);
+  const inp=$('#reset-confirm'), btn=$('#reset-go');
+  setTimeout(()=>inp&&inp.focus(),50);
+  inp.addEventListener('input',()=>{ btn.disabled = inp.value.trim().toUpperCase()!=='RESET'; });
+  btn.onclick=async ()=>{
+    if(inp.value.trim().toUpperCase()!=='RESET') return;
+    try{
+      await window.proton.resetApp();
+      await Store.boot(); state=Store.state;
+      closeModal(); go('dashboard'); toast('Everything was reset');
+      if(!state.goals.length) setTimeout(welcomeModal, 300);
+    }catch(err){ notifyError('Reset failed: '+(err.message||err)); }
+  };
 }
 
 /* ============== Boot ============== */

@@ -44,6 +44,9 @@ function register(getWindow) {
   h('section:update', (id, data) => db.updateSection(id, data));
   h('section:delete', (id) => db.deleteSection(id));
   h('section:reorder', (courseId, ids) => db.reorderSections(courseId, ids));
+  h('task:reorder', (sectionId, ids) => db.reorderTasks(sectionId, ids));
+  h('task:bulkCreate', (sectionId, texts) => db.bulkCreateTasks(sectionId, texts));
+  h('app:reset', () => db.resetAll());
 
   /* ---------- tasks ---------- */
   h('task:create', (sectionId, data) => db.createTask(sectionId, data));

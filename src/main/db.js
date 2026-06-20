@@ -476,6 +476,22 @@ function deleteTask(id) {
   db.prepare('DELETE FROM tasks WHERE id=?').run(id);
   if (t) syncCourseStatusForSection(t.section_id);
 }
+/* Reorder tasks inside a section, AND move a task to a different section.
+   orderedIds is the full, final list of task ids for the target section. */
+function reorderTasks(sectionId, orderedIds) {
+  const affected = new Set([sectionId]);
+  const stmt = db.prepare('UPDATE tasks SET section_id=@sid,position=@pos,updated_at=@t WHERE id=@id');
+  const prev = db.prepare('SELECT section_id FROM tasks WHERE id=?');
+  const tx = db.transaction((ids) => {
+    ids.forEach((id, i) => {
+      const cur = prev.get(id);
+      if (cur && cur.section_id !== sectionId) affected.add(cur.section_id);
+      stmt.run({ id, sid: sectionId, pos: i, t: nowISO() });
+    });
+  });
+  tx(orderedIds);
+  affected.forEach((sid) => { try { syncCourseStatusForSection(sid); } catch (_) {} });
+}
 
 /* auto status: done(100%) / progress(any) / todo(0) */
 function syncCourseStatusForSection(sectionId) {
@@ -658,45 +674,86 @@ function exportPath(pathId) {
   const p = db.prepare('SELECT * FROM learning_paths WHERE id=?').get(pathId);
   if (!p) throw new Error('Path not found');
   const courses = db.prepare('SELECT * FROM courses WHERE path_id=? ORDER BY position,created_at').all(pathId);
-  const cIds = courses.map((c) => c.id);
   const ph = (arr) => arr.map(() => '?').join(',');
-  const sections = cIds.length ? db.prepare(`SELECT * FROM sections WHERE course_id IN (${ph(cIds)}) ORDER BY position,created_at`).all(...cIds) : [];
-  const sIds = sections.map((s) => s.id);
-  const tasks = sIds.length ? db.prepare(`SELECT * FROM tasks WHERE section_id IN (${ph(sIds)}) ORDER BY position,created_at`).all(...sIds) : [];
-  const notes = cIds.length ? db.prepare(`SELECT * FROM notes WHERE course_id IN (${ph(cIds)}) ORDER BY position,created_at`).all(...cIds) : [];
-  return {
-    protonPath: true, version: 1, exportedAt: nowISO(),
-    path: { title: p.title, description: p.description, color: p.color },
-    courses, sections, tasks, notes,   // note text travels; locally-stored images/attachments do not
+  // Build a clean, nested, AI-friendly structure.
+  const path = {
+    title: p.title, description: p.description || '', color: p.color || '#F3AC40',
+    courses: courses.map((c) => {
+      const secs = db.prepare('SELECT * FROM sections WHERE course_id=? ORDER BY position,created_at').all(c.id);
+      return {
+        title: c.title, description: c.description || '', status: c.status || 'todo',
+        sections: secs.map((s) => ({
+          title: s.title,
+          tasks: db.prepare('SELECT text,done FROM tasks WHERE section_id=? ORDER BY position,created_at').all(s.id)
+            .map((t) => ({ text: t.text, done: !!t.done })),
+          notes: db.prepare('SELECT title,content FROM notes WHERE section_id=? ORDER BY position,created_at').all(s.id)
+            .map((n) => ({ title: n.title, content: n.content || '' })),
+        })),
+      };
+    }),
   };
+  return { protonPath: true, version: 2, exportedAt: nowISO(), path };
 }
 
+/* Tolerant import: accepts the nested format, the old flat format
+   ({path,courses[],sections[],tasks[]} with FKs), and is lenient about
+   missing fields so slightly different files still import cleanly. */
 function importPath(data) {
-  if (!data || typeof data !== 'object' || (!data.protonPath && !data.path)) {
-    throw new Error('This is not a Proton path file.');
-  }
-  const d = data;
+  if (!data || typeof data !== 'object') throw new Error('This is not a Proton path file.');
+  // unwrap common shapes
+  let root = data;
+  if (data.path && (Array.isArray(data.path.courses) || data.path.title)) root = data.path;
+  else if (Array.isArray(data.courses) && !data.sections && !data.tasks) root = data; // nested at top level
+
+  const isFlat = Array.isArray(data.courses) && (Array.isArray(data.sections) || Array.isArray(data.tasks));
   let newPathId;
   const tx = db.transaction(() => {
-    const idMap = new Map();
-    const mid = (old) => { if (!idMap.has(old)) idMap.set(old, uid()); return idMap.get(old); };
     newPathId = uid();
     const pos = nextPos('SELECT COALESCE(MAX(position),-1)+1 p FROM learning_paths');
-    const p = d.path || {};
-    insertPathRow({ id: newPathId, title: p.title || 'Imported path', description: p.description || '', color: p.color || '#F3AC40', position: pos });
-    (d.courses || []).forEach((c, i) => {
-      insertCourseRow({ id: mid(c.id), path_id: newPathId, title: c.title || 'Course', description: c.description || '', status: c.status || 'todo', position: c.position != null ? c.position : i });
-    });
-    (d.sections || []).forEach((s, i) => {
-      insertSectionRow({ id: mid(s.id), course_id: mid(s.course_id), title: s.title || 'Section', legacy_notes: '', collapsed: s.collapsed ? 1 : 0, position: s.position != null ? s.position : i });
-    });
-    (d.tasks || []).forEach((t, i) => {
-      insertTaskRow({ id: uid(), section_id: mid(t.section_id), text: t.text || '', done: t.done ? 1 : 0, today: t.today ? 1 : 0, done_at: t.done_at || null, position: t.position != null ? t.position : i });
-    });
-    (d.notes || []).forEach((n, i) => {
-      const nid = uid();
-      insertNoteRow({ id: nid, title: n.title || 'Untitled', content: n.content || '', course_id: mid(n.course_id), section_id: n.section_id != null ? mid(n.section_id) : null, position: n.position != null ? n.position : i });
-      ftsUpsert(nid, n.title || 'Untitled', n.content || '');
+
+    if (isFlat) {
+      const idMap = new Map();
+      const mid = (old) => { if (!idMap.has(old)) idMap.set(old, uid()); return idMap.get(old); };
+      const p = data.path || {};
+      insertPathRow({ id: newPathId, title: p.title || data.title || 'Imported path', description: p.description || '', color: p.color || '#F3AC40', position: pos });
+      (data.courses || []).forEach((c, i) => insertCourseRow({ id: mid(c.id), path_id: newPathId, title: c.title || 'Course', description: c.description || '', status: c.status || 'todo', position: c.position != null ? c.position : i }));
+      (data.sections || []).forEach((s, i) => insertSectionRow({ id: mid(s.id), course_id: mid(s.course_id), title: s.title || 'Section', legacy_notes: '', collapsed: s.collapsed ? 1 : 0, position: s.position != null ? s.position : i }));
+      (data.tasks || []).forEach((t, i) => insertTaskRow({ id: uid(), section_id: mid(t.section_id), text: t.text || '', done: t.done ? 1 : 0, today: t.today ? 1 : 0, done_at: t.done_at || null, position: t.position != null ? t.position : i }));
+      (data.notes || []).forEach((n, i) => { const nid = uid(); insertNoteRow({ id: nid, title: n.title || 'Untitled', content: n.content || '', course_id: mid(n.course_id), section_id: n.section_id != null ? mid(n.section_id) : null, position: n.position != null ? n.position : i }); ftsUpsert(nid, n.title || 'Untitled', n.content || ''); });
+      return;
+    }
+
+    // nested format
+    const pathTitle =
+      (root.title && String(root.title).trim()) ||
+      (root.name && String(root.name).trim()) ||
+      (data.title && String(data.title).trim()) ||
+      (data.name && String(data.name).trim()) ||
+      (data.path && data.path.title && String(data.path.title).trim()) ||
+      (data.pathName && String(data.pathName).trim()) ||
+      'Imported path';
+    insertPathRow({ id: newPathId, title: pathTitle, description: root.description || data.description || '', color: root.color || data.color || '#F3AC40', position: pos });
+    const courses = Array.isArray(root.courses) ? root.courses : [];
+    courses.forEach((c, ci) => {
+      const cid = uid();
+      insertCourseRow({ id: cid, path_id: newPathId, title: (c && c.title) || 'Course', description: (c && c.description) || '', status: (c && c.status) || 'todo', position: ci });
+      const sections = Array.isArray(c && c.sections) ? c.sections : [];
+      sections.forEach((s, si) => {
+        const sid = uid();
+        insertSectionRow({ id: sid, course_id: cid, title: (s && s.title) || 'Section', legacy_notes: '', collapsed: 0, position: si });
+        const tasks = Array.isArray(s && s.tasks) ? s.tasks : [];
+        tasks.forEach((t, ti) => {
+          const text = typeof t === 'string' ? t : (t && t.text) || '';
+          if (!String(text).trim()) return;
+          insertTaskRow({ id: uid(), section_id: sid, text: String(text).slice(0, 500), done: (t && t.done) ? 1 : 0, today: 0, done_at: null, position: ti });
+        });
+        const notes = Array.isArray(s && s.notes) ? s.notes : [];
+        notes.forEach((n, ni) => {
+          const nid = uid();
+          insertNoteRow({ id: nid, title: (n && n.title) || 'Untitled', content: (n && n.content) || '', course_id: cid, section_id: sid, position: ni });
+          ftsUpsert(nid, (n && n.title) || 'Untitled', (n && n.content) || '');
+        });
+      });
     });
   });
   tx();
@@ -718,6 +775,30 @@ function wipeAll() {
   ['note_attachments', 'note_images', 'notes', 'tasks', 'sections', 'courses', 'learning_paths', 'streaks', 'settings']
     .forEach((t) => db.prepare('DELETE FROM ' + t).run());
   db.prepare('DELETE FROM notes_fts').run();
+}
+
+/* Full reset — wipes everything and returns the app to a brand-new, empty state. */
+function resetAll() {
+  const tx = db.transaction(() => { wipeAll(); });
+  tx();
+  checkpoint();
+  return getState();
+}
+
+/* Bulk-add many tasks to one section (used by playlist / AI import). */
+function bulkCreateTasks(sectionId, texts) {
+  if (!Array.isArray(texts) || !texts.length) return 0;
+  let base = nextPos('SELECT COALESCE(MAX(position),-1)+1 p FROM tasks WHERE section_id=?', sectionId);
+  const tx = db.transaction((list) => {
+    list.forEach((txt) => {
+      const t = String(txt || '').trim();
+      if (!t) return;
+      insertTaskRow({ id: uid(), section_id: sectionId, text: t.slice(0, 500), position: base++ });
+    });
+  });
+  tx(texts);
+  syncCourseStatusForSection(sectionId);
+  return texts.length;
 }
 
 function importProton(d) {
@@ -808,10 +889,10 @@ module.exports = {
   createPath, updatePath, deletePath,
   createCourse, updateCourse, deleteCourse, setCourseStatus,
   createSection, updateSection, deleteSection, reorderCourses, reorderSections,
-  createTask, updateTask, deleteTask,
+  createTask, updateTask, deleteTask, reorderTasks, bulkCreateTasks,
   listNotes, getNote, createNote, updateNote, deleteNote, moveNote,
   addNoteImage, addNoteAttachment,
   search, logActivity,
   getSetting, setSetting,
-  exportAll, importAll, exportPath, importPath,
+  exportAll, importAll, exportPath, importPath, resetAll,
 };
