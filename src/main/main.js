@@ -8,7 +8,7 @@
    - Restores window size/position, runs the daily backup
    ============================================================ */
 
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -124,6 +124,22 @@ function createWindow() {
   if (ws.maximized) mainWindow.maximize();
   mainWindow.removeMenu();
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+
+  // ---- security: lock down navigation & new windows ----
+  // Block the app window from ever navigating away from the local app.
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) {
+      e.preventDefault();
+      if (/^https:\/\//.test(url)) shell.openExternal(url); // open real links in the user's browser
+    }
+  });
+  // Never open child windows in-app; send http(s) to the external browser, deny the rest.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  // Block any attempt to attach a <webview>.
+  mainWindow.webContents.on('will-attach-webview', (e) => e.preventDefault());
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   windowState.manage(mainWindow);

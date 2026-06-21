@@ -79,7 +79,8 @@ function resolveUrl(urlPath) {
   // urlPath like "notes/<id>/img-xxx.png"
   const clean = urlPath.replace(/^\/+/, '').replace(/^notes\//, '');
   const abs = path.normalize(path.join(NOTES_DIR, clean));
-  if (!abs.startsWith(NOTES_DIR)) return null; // path traversal guard
+  // path traversal guard: must be the notes dir itself or strictly inside it
+  if (abs !== NOTES_DIR && !abs.startsWith(NOTES_DIR + path.sep)) return null;
   return abs;
 }
 

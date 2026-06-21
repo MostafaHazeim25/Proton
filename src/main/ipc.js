@@ -105,9 +105,11 @@ function register(getWindow) {
     return { id, name: clean, size, url: files.toUrl(filePath) };
   });
   h('note:openAttachment', (filePathOrUrl) => {
-    const abs = filePathOrUrl.startsWith('protonfile://')
-      ? files.resolveUrl(filePathOrUrl.replace('protonfile://', ''))
-      : filePathOrUrl;
+    // Only ever open files inside our notes folder — prevents a crafted/imported
+    // attachment record from pointing shell.openPath at an arbitrary file.
+    const s = String(filePathOrUrl || '');
+    const rel = s.startsWith('protonfile://') ? s.replace('protonfile://', '') : null;
+    const abs = rel ? files.resolveUrl(rel) : null;   // resolveUrl confines to NOTES_DIR
     if (abs && fs.existsSync(abs)) shell.openPath(abs);
     return true;
   });
